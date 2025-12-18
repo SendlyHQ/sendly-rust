@@ -1,0 +1,40 @@
+[package]
+name = "sendly"
+version = "0.9.5"
+edition = "2021"
+authors = ["Sendly <support@sendly.live>"]
+description = "Official Rust SDK for the Sendly SMS API"
+license = "MIT"
+repository = "https://github.com/sendly-live/sendly-rust"
+documentation = "https://docs.rs/sendly"
+readme = "README.md"
+keywords = ["sendly", "sms", "messaging", "api", "sdk"]
+categories = ["api-bindings", "web-programming"]
+
+[dependencies]
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["time"] }
+async-trait = "0.1"
+regex = "1.10"
+async-stream = "0.3"
+futures = "0.3"
+urlencoding = "2.1"
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full", "macros"] }
+wiremock = "0.5"
+
+[features]
+default = []
+blocking = []
+
+[[example]]
+name = "send_sms"
+path = "examples/send_sms.rs"
+
+[[example]]
+name = "list_messages"
+path = "examples/list_messages.rs"
