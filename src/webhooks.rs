@@ -137,14 +137,14 @@ impl Webhooks {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use sendly::webhooks::Webhooks;
     ///
-    /// let is_valid = Webhooks::verify_signature(
-    ///     &raw_body,
-    ///     &signature,
-    ///     &secret,
-    /// );
+    /// let raw_body = r#"{"id":"evt_123","type":"message.delivered"}"#;
+    /// let signature = "sha256=abc123";
+    /// let secret = "your_webhook_secret";
+    ///
+    /// let is_valid = Webhooks::verify_signature(raw_body, signature, secret);
     /// ```
     pub fn verify_signature(payload: &str, signature: &str, secret: &str) -> bool {
         if payload.is_empty() || signature.is_empty() || secret.is_empty() {
@@ -178,10 +178,14 @@ impl Webhooks {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use sendly::webhooks::Webhooks;
     ///
-    /// match Webhooks::parse_event(&raw_body, &signature, &secret) {
+    /// let raw_body = r#"{"id":"evt_123","type":"message.delivered","data":{},"created_at":"2024-01-01"}"#;
+    /// let signature = "sha256=abc123";
+    /// let secret = "your_webhook_secret";
+    ///
+    /// match Webhooks::parse_event(raw_body, signature, secret) {
     ///     Ok(event) => {
     ///         println!("Event type: {:?}", event.event_type);
     ///         println!("Message ID: {}", event.data.message_id);
@@ -225,7 +229,9 @@ impl Webhooks {
     /// ```rust
     /// use sendly::webhooks::Webhooks;
     ///
-    /// let signature = Webhooks::generate_signature(&test_payload, "test_secret");
+    /// let test_payload = r#"{"id":"evt_123","type":"message.delivered"}"#;
+    /// let signature = Webhooks::generate_signature(test_payload, "test_secret");
+    /// assert!(signature.starts_with("sha256="));
     /// ```
     pub fn generate_signature(payload: &str, secret: &str) -> String {
         let mut mac =

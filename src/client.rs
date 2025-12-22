@@ -1,8 +1,10 @@
 use reqwest::{Client, Response, StatusCode};
 use std::time::Duration;
 
+use crate::account_resource::AccountResource;
 use crate::error::{ApiErrorResponse, Error, Result};
 use crate::messages::Messages;
+use crate::webhook_resource::WebhooksResource;
 
 /// Default API base URL.
 pub const DEFAULT_BASE_URL: &str = "https://sendly.live/api/v1";
@@ -119,6 +121,16 @@ impl Sendly {
         Messages::new(self)
     }
 
+    /// Returns the Webhooks resource.
+    pub fn webhooks(&self) -> WebhooksResource {
+        WebhooksResource::new(self)
+    }
+
+    /// Returns the Account resource.
+    pub fn account(&self) -> AccountResource {
+        AccountResource::new(self)
+    }
+
     /// Makes a GET request.
     pub(crate) async fn get(&self, path: &str, query: &[(String, String)]) -> Result<Response> {
         self.request_with_retry(|| async {
@@ -143,6 +155,46 @@ impl Sendly {
 
             self.client
                 .post(&url)
+                .json(body)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("User-Agent", format!("sendly-rs/{}", VERSION))
+                .send()
+                .await
+        })
+        .await
+    }
+
+    /// Makes a PATCH request.
+    pub(crate) async fn patch<T: serde::Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+    ) -> Result<Response> {
+        self.request_with_retry(|| async {
+            let url = format!("{}{}", self.config.base_url, path);
+
+            self.client
+                .patch(&url)
+                .json(body)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("User-Agent", format!("sendly-rs/{}", VERSION))
+                .send()
+                .await
+        })
+        .await
+    }
+
+    /// Makes a PUT request.
+    pub(crate) async fn put<T: serde::Serialize>(&self, path: &str, body: &T) -> Result<Response> {
+        self.request_with_retry(|| async {
+            let url = format!("{}{}", self.config.base_url, path);
+
+            self.client
+                .put(&url)
                 .json(body)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")

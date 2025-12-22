@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 pub enum MessageStatus {
     /// Message is queued for delivery.
     Queued,
-    /// Message is being sent.
-    Sending,
     /// Message was sent to carrier.
     Sent,
     /// Message was delivered.
@@ -20,12 +18,41 @@ impl std::fmt::Display for MessageStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MessageStatus::Queued => write!(f, "queued"),
-            MessageStatus::Sending => write!(f, "sending"),
             MessageStatus::Sent => write!(f, "sent"),
             MessageStatus::Delivered => write!(f, "delivered"),
             MessageStatus::Failed => write!(f, "failed"),
         }
     }
+}
+
+/// Message direction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MessageDirection {
+    /// Outbound message (sent by you).
+    Outbound,
+    /// Inbound message (received from recipient).
+    Inbound,
+}
+
+impl Default for MessageDirection {
+    fn default() -> Self {
+        MessageDirection::Outbound
+    }
+}
+
+/// Sender type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SenderType {
+    /// Sent by user via dashboard.
+    User,
+    /// Sent via API.
+    Api,
+    /// System-generated message.
+    System,
+    /// Campaign message.
+    Campaign,
 }
 
 /// An SMS message.
@@ -42,24 +69,52 @@ pub struct Message {
     pub text: String,
     /// Delivery status.
     pub status: MessageStatus,
+    /// Message direction.
+    #[serde(default)]
+    pub direction: MessageDirection,
+    /// Number of SMS segments.
+    #[serde(default = "default_segments")]
+    pub segments: i32,
+    /// Credits consumed.
+    #[serde(default, alias = "creditsUsed")]
+    pub credits_used: i32,
+    /// Whether sent in sandbox mode.
+    #[serde(default, alias = "isSandbox")]
+    pub is_sandbox: bool,
+    /// Type of sender.
+    #[serde(default, alias = "senderType")]
+    pub sender_type: Option<SenderType>,
+    /// Telnyx message ID for carrier tracking.
+    #[serde(default, alias = "telnyxMessageId")]
+    pub telnyx_message_id: Option<String>,
+    /// Warning message if any.
+    #[serde(default)]
+    pub warning: Option<String>,
+    /// Optional note from the sender.
+    #[serde(default, alias = "senderNote")]
+    pub sender_note: Option<String>,
     /// Error message (if failed).
     #[serde(default)]
     pub error: Option<String>,
-    /// Number of SMS segments.
-    #[serde(default)]
-    pub segments: i32,
-    /// Credits consumed.
-    #[serde(default, rename = "creditsUsed")]
-    pub credits_used: i32,
-    /// Whether sent in sandbox mode.
-    #[serde(default, rename = "isSandbox")]
-    pub is_sandbox: bool,
+    /// Error code (if failed).
+    #[serde(default, alias = "errorCode")]
+    pub error_code: Option<String>,
+    /// Error message (if failed).
+    #[serde(default, alias = "errorMessage")]
+    pub error_message: Option<String>,
     /// Creation timestamp.
-    #[serde(default, rename = "createdAt")]
+    #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
+    /// Last update timestamp.
+    #[serde(default, alias = "updatedAt")]
+    pub updated_at: Option<String>,
     /// Delivery timestamp (if delivered).
-    #[serde(default, rename = "deliveredAt")]
+    #[serde(default, alias = "deliveredAt")]
     pub delivered_at: Option<String>,
+}
+
+fn default_segments() -> i32 {
+    1
 }
 
 impl Message {
@@ -75,10 +130,7 @@ impl Message {
 
     /// Returns true if the message is pending.
     pub fn is_pending(&self) -> bool {
-        matches!(
-            self.status,
-            MessageStatus::Queued | MessageStatus::Sending | MessageStatus::Sent
-        )
+        matches!(self.status, MessageStatus::Queued | MessageStatus::Sent)
     }
 }
 
@@ -245,24 +297,24 @@ pub struct ScheduledMessage {
     /// Message content.
     pub text: String,
     /// When the message is scheduled to be sent (ISO 8601).
-    #[serde(rename = "scheduledAt")]
+    #[serde(alias = "scheduledAt")]
     pub scheduled_at: String,
     /// Scheduled message status.
     pub status: ScheduledMessageStatus,
     /// Credits reserved for this message.
-    #[serde(default, rename = "creditsReserved")]
+    #[serde(default, alias = "creditsReserved")]
     pub credits_reserved: i32,
     /// Creation timestamp.
-    #[serde(default, rename = "createdAt")]
+    #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
     /// When the message was sent.
-    #[serde(default, rename = "sentAt")]
+    #[serde(default, alias = "sentAt")]
     pub sent_at: Option<String>,
     /// When the message was cancelled.
-    #[serde(default, rename = "cancelledAt")]
+    #[serde(default, alias = "cancelledAt")]
     pub cancelled_at: Option<String>,
     /// Message ID after sending.
-    #[serde(default, rename = "messageId")]
+    #[serde(default, alias = "messageId")]
     pub message_id: Option<String>,
 }
 
@@ -394,7 +446,7 @@ pub struct CancelScheduledMessageResponse {
     /// New status (cancelled).
     pub status: ScheduledMessageStatus,
     /// Credits refunded.
-    #[serde(default, rename = "creditsRefunded")]
+    #[serde(default, alias = "creditsRefunded")]
     pub credits_refunded: i32,
 }
 
@@ -450,7 +502,7 @@ pub struct BatchMessageResult {
     /// Recipient phone number.
     pub to: String,
     /// Message ID if successful.
-    #[serde(default, rename = "messageId")]
+    #[serde(default, alias = "messageId")]
     pub message_id: Option<String>,
     /// Message status.
     pub status: String,
@@ -463,7 +515,7 @@ pub struct BatchMessageResult {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BatchMessageResponse {
     /// Unique batch identifier.
-    #[serde(rename = "batchId")]
+    #[serde(alias = "batchId")]
     pub batch_id: String,
     /// Batch status.
     pub status: BatchStatus,
@@ -476,16 +528,16 @@ pub struct BatchMessageResponse {
     /// Messages failed.
     pub failed: i32,
     /// Total credits used.
-    #[serde(default, rename = "creditsUsed")]
+    #[serde(default, alias = "creditsUsed")]
     pub credits_used: i32,
     /// Results for each message.
     #[serde(default)]
     pub messages: Vec<BatchMessageResult>,
     /// Creation timestamp.
-    #[serde(default, rename = "createdAt")]
+    #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
     /// Completion timestamp.
-    #[serde(default, rename = "completedAt")]
+    #[serde(default, alias = "completedAt")]
     pub completed_at: Option<String>,
 }
 
@@ -592,4 +644,532 @@ impl IntoIterator for BatchList {
     fn into_iter(self) -> Self::IntoIter {
         self.data.into_iter()
     }
+}
+
+// ==================== Webhook Types ====================
+
+/// Circuit breaker state for webhooks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CircuitState {
+    /// Circuit is closed (healthy).
+    Closed,
+    /// Circuit is open (failing).
+    Open,
+    /// Circuit is half-open (testing).
+    HalfOpen,
+}
+
+impl Default for CircuitState {
+    fn default() -> Self {
+        CircuitState::Closed
+    }
+}
+
+/// A webhook configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Webhook {
+    /// Unique webhook identifier.
+    pub id: String,
+    /// URL to receive webhook events.
+    pub url: String,
+    /// List of subscribed event types.
+    #[serde(default)]
+    pub events: Vec<String>,
+    /// Whether the webhook is active.
+    #[serde(default = "default_true", alias = "isActive")]
+    pub is_active: bool,
+    /// Number of consecutive failures.
+    #[serde(default, alias = "failureCount")]
+    pub failure_count: i32,
+    /// Circuit breaker state.
+    #[serde(default, alias = "circuitState")]
+    pub circuit_state: CircuitState,
+    /// API version for webhook payloads.
+    #[serde(default, alias = "apiVersion")]
+    pub api_version: Option<String>,
+    /// Total number of delivery attempts.
+    #[serde(default, alias = "totalDeliveries")]
+    pub total_deliveries: i32,
+    /// Number of successful deliveries.
+    #[serde(default, alias = "successfulDeliveries")]
+    pub successful_deliveries: i32,
+    /// Success rate percentage.
+    #[serde(default, alias = "successRate")]
+    pub success_rate: f64,
+    /// Timestamp of last delivery attempt.
+    #[serde(default, alias = "lastDeliveryAt")]
+    pub last_delivery_at: Option<String>,
+    /// Creation timestamp.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    /// Last update timestamp.
+    #[serde(default, alias = "updatedAt")]
+    pub updated_at: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Webhook {
+    /// Returns true if the webhook is healthy (active and circuit closed).
+    pub fn is_healthy(&self) -> bool {
+        self.is_active && self.circuit_state == CircuitState::Closed
+    }
+
+    /// Returns true if the circuit breaker is open.
+    pub fn is_circuit_open(&self) -> bool {
+        self.circuit_state == CircuitState::Open
+    }
+}
+
+/// Response from creating a webhook (includes secret).
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebhookCreatedResponse {
+    /// The created webhook.
+    #[serde(default)]
+    pub webhook: Option<Webhook>,
+    /// The webhook secret for signature verification.
+    #[serde(default)]
+    pub secret: String,
+    // Flatten webhook fields for direct responses
+    #[serde(flatten)]
+    pub data: Option<Webhook>,
+}
+
+impl WebhookCreatedResponse {
+    /// Gets the webhook, checking both nested and flattened forms.
+    pub fn get_webhook(&self) -> Option<&Webhook> {
+        self.webhook.as_ref().or(self.data.as_ref())
+    }
+}
+
+/// Request to create a webhook.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateWebhookRequest {
+    /// URL to receive webhook events.
+    pub url: String,
+    /// List of event types to subscribe to.
+    pub events: Vec<String>,
+    /// API version for webhook payloads.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "apiVersion")]
+    pub api_version: Option<String>,
+}
+
+/// Request to update a webhook.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct UpdateWebhookRequest {
+    /// New URL to receive webhook events.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// New list of event types to subscribe to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events: Option<Vec<String>>,
+    /// Whether the webhook is active.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "is_active")]
+    pub is_active: Option<bool>,
+}
+
+/// A webhook delivery attempt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookDelivery {
+    /// Unique delivery identifier.
+    pub id: String,
+    /// Webhook ID this delivery belongs to.
+    #[serde(alias = "webhookId")]
+    pub webhook_id: String,
+    /// Event type that triggered this delivery.
+    #[serde(alias = "eventType")]
+    pub event_type: String,
+    /// HTTP status code from the endpoint.
+    #[serde(default, alias = "httpStatus")]
+    pub http_status: i32,
+    /// Whether the delivery was successful.
+    #[serde(default)]
+    pub success: bool,
+    /// Attempt number (1-based).
+    #[serde(default = "default_one", alias = "attemptNumber")]
+    pub attempt_number: i32,
+    /// Error message if the delivery failed.
+    #[serde(default, alias = "errorMessage")]
+    pub error_message: Option<String>,
+    /// Response time in milliseconds.
+    #[serde(default, alias = "responseTimeMs")]
+    pub response_time_ms: i32,
+    /// Timestamp of the delivery attempt.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+}
+
+fn default_one() -> i32 {
+    1
+}
+
+/// List of webhook deliveries.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebhookDeliveryList {
+    /// Deliveries in this page.
+    #[serde(default, alias = "deliveries")]
+    pub data: Vec<WebhookDelivery>,
+    /// Total count of deliveries.
+    #[serde(default)]
+    pub total: i32,
+    /// Whether there are more deliveries.
+    #[serde(default, alias = "hasMore")]
+    pub has_more: bool,
+}
+
+/// Result from testing a webhook.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebhookTestResult {
+    /// Whether the test was successful.
+    #[serde(default)]
+    pub success: bool,
+    /// HTTP status code from the endpoint.
+    #[serde(default, alias = "statusCode")]
+    pub status_code: i32,
+    /// Response time in milliseconds.
+    #[serde(default, alias = "responseTimeMs")]
+    pub response_time_ms: i32,
+    /// Error message if the test failed.
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// Response from rotating a webhook secret.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebhookSecretRotation {
+    /// The new webhook secret.
+    #[serde(default)]
+    pub secret: String,
+    /// Timestamp of the rotation.
+    #[serde(default, alias = "rotatedAt")]
+    pub rotated_at: Option<String>,
+}
+
+/// Options for listing webhook deliveries.
+#[derive(Debug, Clone, Default)]
+pub struct ListDeliveriesOptions {
+    /// Maximum deliveries to return.
+    pub limit: Option<u32>,
+    /// Number of deliveries to skip.
+    pub offset: Option<u32>,
+}
+
+impl ListDeliveriesOptions {
+    /// Creates new default options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the limit.
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit.min(100));
+        self
+    }
+
+    /// Sets the offset.
+    pub fn offset(mut self, offset: u32) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
+    pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+
+        if let Some(limit) = self.limit {
+            params.push(("limit".to_string(), limit.to_string()));
+        }
+        if let Some(offset) = self.offset {
+            params.push(("offset".to_string(), offset.to_string()));
+        }
+
+        params
+    }
+}
+
+// ==================== Account Types ====================
+
+/// Credit balance information.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Credits {
+    /// Total credit balance.
+    #[serde(default)]
+    pub balance: i32,
+    /// Available credits for use.
+    #[serde(default, alias = "availableBalance")]
+    pub available_balance: i32,
+    /// Credits pending from purchases.
+    #[serde(default, alias = "pendingCredits")]
+    pub pending_credits: i32,
+    /// Credits reserved for scheduled messages.
+    #[serde(default, alias = "reservedCredits")]
+    pub reserved_credits: i32,
+    /// Currency code.
+    #[serde(default = "default_currency")]
+    pub currency: String,
+}
+
+fn default_currency() -> String {
+    "USD".to_string()
+}
+
+impl Credits {
+    /// Returns true if there are credits available.
+    pub fn has_credits(&self) -> bool {
+        self.available_balance > 0
+    }
+}
+
+/// Credit transaction type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TransactionType {
+    /// Credit purchase.
+    Purchase,
+    /// Credit usage (sending messages).
+    Usage,
+    /// Credit refund.
+    Refund,
+    /// Bonus credits.
+    Bonus,
+    /// Manual adjustment.
+    Adjustment,
+}
+
+/// A credit transaction.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreditTransaction {
+    /// Unique transaction identifier.
+    pub id: String,
+    /// Transaction type.
+    #[serde(rename = "type")]
+    pub transaction_type: TransactionType,
+    /// Amount (positive for credits, negative for debits).
+    #[serde(default)]
+    pub amount: i32,
+    /// Balance after this transaction.
+    #[serde(default, alias = "balanceAfter")]
+    pub balance_after: i32,
+    /// Transaction description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Reference ID (e.g., message ID, order ID).
+    #[serde(default, alias = "referenceId")]
+    pub reference_id: Option<String>,
+    /// Transaction timestamp.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+}
+
+impl CreditTransaction {
+    /// Returns true if this is a credit (positive amount).
+    pub fn is_credit(&self) -> bool {
+        self.amount > 0
+    }
+
+    /// Returns true if this is a debit (negative amount).
+    pub fn is_debit(&self) -> bool {
+        self.amount < 0
+    }
+}
+
+/// List of credit transactions.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreditTransactionList {
+    /// Transactions in this page.
+    #[serde(default, alias = "transactions")]
+    pub data: Vec<CreditTransaction>,
+    /// Total count of transactions.
+    #[serde(default)]
+    pub total: i32,
+    /// Whether there are more transactions.
+    #[serde(default, alias = "hasMore")]
+    pub has_more: bool,
+}
+
+/// Options for listing transactions.
+#[derive(Debug, Clone, Default)]
+pub struct ListTransactionsOptions {
+    /// Maximum transactions to return.
+    pub limit: Option<u32>,
+    /// Number of transactions to skip.
+    pub offset: Option<u32>,
+    /// Filter by transaction type.
+    pub transaction_type: Option<TransactionType>,
+}
+
+impl ListTransactionsOptions {
+    /// Creates new default options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the limit.
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit.min(100));
+        self
+    }
+
+    /// Sets the offset.
+    pub fn offset(mut self, offset: u32) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
+    /// Sets the transaction type filter.
+    pub fn transaction_type(mut self, t: TransactionType) -> Self {
+        self.transaction_type = Some(t);
+        self
+    }
+
+    pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+
+        if let Some(limit) = self.limit {
+            params.push(("limit".to_string(), limit.to_string()));
+        }
+        if let Some(offset) = self.offset {
+            params.push(("offset".to_string(), offset.to_string()));
+        }
+        if let Some(ref t) = self.transaction_type {
+            let type_str = match t {
+                TransactionType::Purchase => "purchase",
+                TransactionType::Usage => "usage",
+                TransactionType::Refund => "refund",
+                TransactionType::Bonus => "bonus",
+                TransactionType::Adjustment => "adjustment",
+            };
+            params.push(("type".to_string(), type_str.to_string()));
+        }
+
+        params
+    }
+}
+
+/// An API key.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApiKey {
+    /// Unique API key identifier.
+    pub id: String,
+    /// Display name for the API key.
+    #[serde(default)]
+    pub name: String,
+    /// Key prefix for identification.
+    #[serde(default)]
+    pub prefix: String,
+    /// Last time the key was used.
+    #[serde(default, alias = "lastUsedAt")]
+    pub last_used_at: Option<String>,
+    /// Creation timestamp.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    /// Expiration timestamp.
+    #[serde(default, alias = "expiresAt")]
+    pub expires_at: Option<String>,
+    /// Whether the key is active.
+    #[serde(default = "default_true", alias = "isActive")]
+    pub is_active: bool,
+}
+
+/// Response from creating an API key.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateApiKeyResponse {
+    /// The created API key.
+    #[serde(default, alias = "apiKey")]
+    pub api_key: Option<ApiKey>,
+    /// The full API key value (only shown once).
+    #[serde(default)]
+    pub key: String,
+}
+
+/// Request to create an API key.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateApiKeyRequest {
+    /// Display name for the API key.
+    pub name: String,
+    /// Optional expiration date.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "expires_at")]
+    pub expires_at: Option<String>,
+}
+
+/// Account verification status.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AccountVerification {
+    /// Whether email is verified.
+    #[serde(default, alias = "emailVerified")]
+    pub email_verified: bool,
+    /// Whether phone is verified.
+    #[serde(default, alias = "phoneVerified")]
+    pub phone_verified: bool,
+    /// Whether identity is verified.
+    #[serde(default, alias = "identityVerified")]
+    pub identity_verified: bool,
+}
+
+impl AccountVerification {
+    /// Returns true if fully verified.
+    pub fn is_fully_verified(&self) -> bool {
+        self.email_verified && self.phone_verified && self.identity_verified
+    }
+}
+
+/// Account rate limits.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountLimits {
+    /// Maximum messages per second.
+    #[serde(default = "default_mps", alias = "messagesPerSecond")]
+    pub messages_per_second: i32,
+    /// Maximum messages per day.
+    #[serde(default = "default_mpd", alias = "messagesPerDay")]
+    pub messages_per_day: i32,
+    /// Maximum batch size.
+    #[serde(default = "default_batch", alias = "maxBatchSize")]
+    pub max_batch_size: i32,
+}
+
+fn default_mps() -> i32 {
+    10
+}
+fn default_mpd() -> i32 {
+    10000
+}
+fn default_batch() -> i32 {
+    1000
+}
+
+impl Default for AccountLimits {
+    fn default() -> Self {
+        Self {
+            messages_per_second: 10,
+            messages_per_day: 10000,
+            max_batch_size: 1000,
+        }
+    }
+}
+
+/// Account information.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Account {
+    /// Unique account identifier.
+    pub id: String,
+    /// Account email address.
+    #[serde(default)]
+    pub email: String,
+    /// Account holder name.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Company name.
+    #[serde(default, alias = "companyName")]
+    pub company_name: Option<String>,
+    /// Verification status.
+    #[serde(default)]
+    pub verification: AccountVerification,
+    /// Rate limits.
+    #[serde(default)]
+    pub limits: AccountLimits,
+    /// Account creation timestamp.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
 }
