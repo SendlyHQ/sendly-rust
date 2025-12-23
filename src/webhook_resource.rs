@@ -78,6 +78,7 @@ impl<'a> WebhooksResource<'a> {
         let request = CreateWebhookRequest {
             url: url.into(),
             events: events.into_iter().map(|e| e.into()).collect(),
+            mode: None,
             api_version: None,
         };
 
@@ -136,6 +137,7 @@ impl<'a> WebhooksResource<'a> {
                 id: String::new(),
                 url: String::new(),
                 events: Vec::new(),
+                mode: crate::models::WebhookMode::All,
                 is_active: true,
                 failure_count: 0,
                 circuit_state: crate::models::CircuitState::Closed,
@@ -172,6 +174,7 @@ impl<'a> WebhooksResource<'a> {
                 id: String::new(),
                 url: String::new(),
                 events: Vec::new(),
+                mode: crate::models::WebhookMode::All,
                 is_active: true,
                 failure_count: 0,
                 circuit_state: crate::models::CircuitState::Closed,

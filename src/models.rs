@@ -666,6 +666,24 @@ impl Default for CircuitState {
     }
 }
 
+/// Webhook mode for event filtering.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebhookMode {
+    /// Receive both test and live events.
+    All,
+    /// Only receive sandbox/test events.
+    Test,
+    /// Only receive production events (requires verification).
+    Live,
+}
+
+impl Default for WebhookMode {
+    fn default() -> Self {
+        WebhookMode::All
+    }
+}
+
 /// A webhook configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Webhook {
@@ -676,6 +694,9 @@ pub struct Webhook {
     /// List of subscribed event types.
     #[serde(default)]
     pub events: Vec<String>,
+    /// Event mode filter (all, test, live).
+    #[serde(default)]
+    pub mode: WebhookMode,
     /// Whether the webhook is active.
     #[serde(default = "default_true", alias = "isActive")]
     pub is_active: bool,
@@ -752,6 +773,9 @@ pub struct CreateWebhookRequest {
     pub url: String,
     /// List of event types to subscribe to.
     pub events: Vec<String>,
+    /// Event mode filter (all, test, live). Live requires verification.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<WebhookMode>,
     /// API version for webhook payloads.
     #[serde(skip_serializing_if = "Option::is_none", rename = "apiVersion")]
     pub api_version: Option<String>,
@@ -769,6 +793,9 @@ pub struct UpdateWebhookRequest {
     /// Whether the webhook is active.
     #[serde(skip_serializing_if = "Option::is_none", rename = "is_active")]
     pub is_active: Option<bool>,
+    /// Event mode filter (all, test, live).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<WebhookMode>,
 }
 
 /// A webhook delivery attempt.
