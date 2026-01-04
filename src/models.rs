@@ -1163,7 +1163,7 @@ impl ListTransactionsOptions {
 }
 
 /// An API key.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ApiKey {
     /// Unique API key identifier.
     pub id: String,
