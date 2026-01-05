@@ -248,7 +248,15 @@ impl<'a> VerifyResource<'a> {
     }
 
     pub async fn send(&self, request: SendVerificationRequest) -> Result<SendVerificationResponse> {
-        let response = self.client.post("/verify/send", &request).await?;
+        let response = self.client.post("/verify", &request).await?;
+        Ok(response.json().await?)
+    }
+
+    pub async fn resend(&self, id: &str) -> Result<SendVerificationResponse> {
+        let response = self
+            .client
+            .post(&format!("/verify/{}/resend", id), &())
+            .await?;
         Ok(response.json().await?)
     }
 
