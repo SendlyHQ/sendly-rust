@@ -4,6 +4,8 @@ use std::time::Duration;
 use crate::account_resource::AccountResource;
 use crate::error::{ApiErrorResponse, Error, Result};
 use crate::messages::Messages;
+use crate::templates::TemplatesResource;
+use crate::verify::VerifyResource;
 use crate::webhook_resource::WebhooksResource;
 
 /// Default API base URL.
@@ -129,6 +131,16 @@ impl Sendly {
     /// Returns the Account resource.
     pub fn account(&self) -> AccountResource {
         AccountResource::new(self)
+    }
+
+    /// Returns the Verify resource.
+    pub fn verify(&self) -> VerifyResource {
+        VerifyResource::new(self)
+    }
+
+    /// Returns the Templates resource.
+    pub fn templates(&self) -> TemplatesResource {
+        TemplatesResource::new(self)
     }
 
     /// Makes a GET request.

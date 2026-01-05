@@ -62,6 +62,8 @@ mod client;
 mod error;
 mod messages;
 mod models;
+mod templates;
+mod verify;
 mod webhook_resource;
 
 pub mod webhooks;
@@ -71,4 +73,6 @@ pub use client::{Sendly, SendlyConfig};
 pub use error::{Error, Result};
 pub use messages::Messages;
 pub use models::*;
+pub use templates::*;
+pub use verify::*;
 pub use webhook_resource::WebhooksResource;
