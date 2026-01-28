@@ -2,6 +2,8 @@ use reqwest::{Client, Response, StatusCode};
 use std::time::Duration;
 
 use crate::account_resource::AccountResource;
+use crate::campaigns::CampaignsResource;
+use crate::contacts::ContactsResource;
 use crate::error::{ApiErrorResponse, Error, Result};
 use crate::messages::Messages;
 use crate::templates::TemplatesResource;
@@ -141,6 +143,16 @@ impl Sendly {
     /// Returns the Templates resource.
     pub fn templates(&self) -> TemplatesResource {
         TemplatesResource::new(self)
+    }
+
+    /// Returns the Campaigns resource.
+    pub fn campaigns(&self) -> CampaignsResource {
+        CampaignsResource::new(self)
+    }
+
+    /// Returns the Contacts resource.
+    pub fn contacts(&self) -> ContactsResource {
+        ContactsResource::new(self)
     }
 
     /// Makes a GET request.

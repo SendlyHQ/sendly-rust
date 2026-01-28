@@ -58,7 +58,9 @@
 //! ```
 
 mod account_resource;
+mod campaigns;
 mod client;
+mod contacts;
 mod error;
 mod messages;
 mod models;
@@ -69,7 +71,9 @@ mod webhook_resource;
 pub mod webhooks;
 
 pub use account_resource::AccountResource;
+pub use campaigns::*;
 pub use client::{Sendly, SendlyConfig};
+pub use contacts::*;
 pub use error::{Error, Result};
 pub use messages::Messages;
 pub use models::*;

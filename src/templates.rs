@@ -243,4 +243,25 @@ impl<'a> TemplatesResource<'a> {
             .await?;
         Ok(response.json().await?)
     }
+
+    pub async fn clone(&self, id: &str) -> Result<Template> {
+        let response = self
+            .client
+            .post(&format!("/templates/{}/clone", id), &())
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    pub async fn clone_with_name(&self, id: &str, name: impl Into<String>) -> Result<Template> {
+        #[derive(serde::Serialize)]
+        struct CloneRequest {
+            name: String,
+        }
+        let request = CloneRequest { name: name.into() };
+        let response = self
+            .client
+            .post(&format!("/templates/{}/clone", id), &request)
+            .await?;
+        Ok(response.json().await?)
+    }
 }
