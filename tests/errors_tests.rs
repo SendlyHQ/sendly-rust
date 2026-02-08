@@ -386,7 +386,7 @@ async fn test_error_network() {
     assert!(result.is_err());
     let error = result.unwrap_err();
 
-    // Should be either Network or Http error
+    // Should be either Network, Http, or Timeout error (DNS can timeout)
     match &error {
         Error::Network { .. } => {
             assert!(error.is_retryable());
@@ -396,7 +396,11 @@ async fn test_error_network() {
         Error::Http(_) => {
             // Also acceptable
         }
-        _ => panic!("Expected Network or Http error, got: {:?}", error),
+        Error::Timeout => {
+            // DNS resolution can timeout on invalid domains
+            assert!(error.is_retryable());
+        }
+        _ => panic!("Expected Network, Http, or Timeout error, got: {:?}", error),
     }
 }
 

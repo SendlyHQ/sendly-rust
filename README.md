@@ -102,7 +102,20 @@ let message = client.messages()
 let message = client.messages().send(SendMessageRequest {
     to: "+15551234567".to_string(),
     text: "Your verification code is: 123456".to_string(),
-    message_type: Some("transactional".to_string()),
+    message_type: Some(MessageType::Transactional),
+    ..Default::default()
+}).await?;
+
+// With custom metadata (max 4KB)
+use std::collections::HashMap;
+let mut metadata = HashMap::new();
+metadata.insert("order_id".to_string(), serde_json::json!("12345"));
+metadata.insert("customer_id".to_string(), serde_json::json!("cust_abc"));
+
+let message = client.messages().send(SendMessageRequest {
+    to: "+15551234567".to_string(),
+    text: "Your order #12345 has shipped!".to_string(),
+    metadata: Some(metadata),
     ..Default::default()
 }).await?;
 
