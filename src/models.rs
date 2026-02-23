@@ -1180,6 +1180,23 @@ impl ListTransactionsOptions {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TransferCreditsRequest {
+    #[serde(rename = "targetOrganizationId")]
+    pub target_organization_id: String,
+    pub amount: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TransferCreditsResponse {
+    pub success: bool,
+    pub amount: i32,
+    #[serde(alias = "sourceBalance")]
+    pub source_balance: i32,
+    #[serde(alias = "targetBalance")]
+    pub target_balance: i32,
+}
+
 /// An API key.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ApiKey {

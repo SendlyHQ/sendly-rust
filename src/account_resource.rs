@@ -4,7 +4,7 @@ use crate::client::Sendly;
 use crate::error::Result;
 use crate::models::{
     Account, ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, CreditTransactionList, Credits,
-    ListTransactionsOptions,
+    ListTransactionsOptions, TransferCreditsRequest, TransferCreditsResponse,
 };
 use serde::Deserialize;
 
@@ -173,6 +173,15 @@ impl<'a> AccountResource<'a> {
         let query = options.unwrap_or_default().to_query_params();
         let response = self.client.get("/account/transactions", &query).await?;
         let result: CreditTransactionList = response.json().await?;
+        Ok(result)
+    }
+
+    pub async fn transfer_credits(
+        &self,
+        request: TransferCreditsRequest,
+    ) -> Result<TransferCreditsResponse> {
+        let response = self.client.post("/credits/transfer", &request).await?;
+        let result: TransferCreditsResponse = response.json().await?;
         Ok(result)
     }
 
