@@ -211,6 +211,18 @@ impl<'a> WebhooksResource<'a> {
         Ok(result)
     }
 
+    /// Resets the circuit breaker for a webhook.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Webhook ID
+    pub async fn reset_circuit(&self, id: impl AsRef<str>) -> Result<serde_json::Value> {
+        let path = format!("/webhooks/{}/reset-circuit", id.as_ref());
+        let response = self.client.post(&path, &()).await?;
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
     /// Rotates a webhook's secret.
     ///
     /// # Arguments
