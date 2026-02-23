@@ -14,6 +14,8 @@ pub enum MessageStatus {
     Failed,
     /// Message bounced (carrier rejected).
     Bounced,
+    /// Message is being retried after a transient failure.
+    Retrying,
 }
 
 impl std::fmt::Display for MessageStatus {
@@ -24,6 +26,7 @@ impl std::fmt::Display for MessageStatus {
             MessageStatus::Delivered => write!(f, "delivered"),
             MessageStatus::Failed => write!(f, "failed"),
             MessageStatus::Bounced => write!(f, "bounced"),
+            MessageStatus::Retrying => write!(f, "retrying"),
         }
     }
 }
@@ -105,6 +108,9 @@ pub struct Message {
     /// Error message (if failed).
     #[serde(default, alias = "errorMessage")]
     pub error_message: Option<String>,
+    /// Number of delivery retry attempts.
+    #[serde(default, alias = "retryCount")]
+    pub retry_count: i32,
     /// Creation timestamp.
     #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,

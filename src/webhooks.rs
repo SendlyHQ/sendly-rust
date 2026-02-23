@@ -43,6 +43,10 @@ pub enum WebhookEventType {
     MessageDelivered,
     #[serde(rename = "message.failed")]
     MessageFailed,
+    #[serde(rename = "message.bounced")]
+    MessageBounced,
+    #[serde(rename = "message.retrying")]
+    MessageRetrying,
     #[serde(rename = "message.undelivered")]
     MessageUndelivered,
 }
@@ -55,6 +59,8 @@ pub enum WebhookMessageStatus {
     Sent,
     Delivered,
     Failed,
+    Bounced,
+    Retrying,
     Undelivered,
 }
 
