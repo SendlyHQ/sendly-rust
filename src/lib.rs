@@ -15,6 +15,7 @@
 //!         to: "+15551234567".to_string(),
 //!         text: "Hello from Sendly!".to_string(),
 //!         message_type: None,
+//!         media_urls: None,
 //!         metadata: None,
 //!     }).await?;
 //!
@@ -63,6 +64,7 @@ mod campaigns;
 mod client;
 mod contacts;
 mod error;
+mod media;
 mod messages;
 mod models;
 mod templates;
@@ -76,6 +78,7 @@ pub use campaigns::*;
 pub use client::{Sendly, SendlyConfig};
 pub use contacts::*;
 pub use error::{Error, Result};
+pub use media::Media;
 pub use messages::Messages;
 pub use models::*;
 pub use templates::*;

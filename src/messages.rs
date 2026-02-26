@@ -47,6 +47,7 @@ impl<'a> Messages<'a> {
     ///     to: "+15551234567".to_string(),
     ///     text: "Hello from Sendly!".to_string(),
     ///     message_type: None,
+    ///     media_urls: None,
     ///     metadata: None,
     /// }).await?;
     ///
@@ -56,7 +57,10 @@ impl<'a> Messages<'a> {
     /// ```
     pub async fn send(&self, request: SendMessageRequest) -> Result<Message> {
         validate_phone(&request.to)?;
-        validate_text(&request.text)?;
+        let has_media = request.media_urls.as_ref().map_or(false, |u| !u.is_empty());
+        if !has_media {
+            validate_text(&request.text)?;
+        }
 
         let response = self.client.post("/messages", &request).await?;
         let message: Message = response.json().await?;
@@ -90,6 +94,7 @@ impl<'a> Messages<'a> {
             to: to.into(),
             text: text.into(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await

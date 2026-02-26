@@ -87,6 +87,7 @@ async fn test_client_api_key_in_headers() {
             to: "+15551234567".to_string(),
             text: "Test".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;
@@ -125,6 +126,7 @@ async fn test_client_user_agent_header() {
             to: "+15551234567".to_string(),
             text: "Test".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;

@@ -16,6 +16,7 @@ async fn main() {
             to: "+15551234567".to_string(),
             text: "Hello from Sendly Rust SDK!".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await

@@ -175,9 +175,23 @@ pub struct SendMessageRequest {
     /// Message type: "marketing" (default, subject to quiet hours) or "transactional" (24/7).
     #[serde(skip_serializing_if = "Option::is_none", rename = "messageType")]
     pub message_type: Option<MessageType>,
+    /// Media URLs for MMS messages.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mediaUrls")]
+    pub media_urls: Option<Vec<String>>,
     /// Custom metadata to attach to the message (max 4KB).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+/// An uploaded media file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MediaFile {
+    pub id: String,
+    pub url: String,
+    #[serde(rename = "contentType")]
+    pub content_type: String,
+    #[serde(rename = "sizeBytes")]
+    pub size_bytes: i64,
 }
 
 /// Options for listing messages.

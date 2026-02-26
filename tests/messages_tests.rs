@@ -27,6 +27,7 @@ async fn test_send_success() {
             to: "+15551234567".to_string(),
             text: "Hello World".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;
@@ -52,6 +53,7 @@ async fn test_send_invalid_phone_format() {
             to: "invalid-phone".to_string(),
             text: "Hello".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;
@@ -76,6 +78,7 @@ async fn test_send_empty_text() {
             to: "+15551234567".to_string(),
             text: "".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;
@@ -102,6 +105,7 @@ async fn test_send_text_too_long() {
             to: "+15551234567".to_string(),
             text: long_text,
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;
@@ -128,6 +132,7 @@ async fn test_send_authentication_error() {
             to: "+15551234567".to_string(),
             text: "Hello".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;
@@ -154,6 +159,7 @@ async fn test_send_insufficient_credits() {
             to: "+15551234567".to_string(),
             text: "Hello".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;
@@ -180,6 +186,7 @@ async fn test_send_rate_limit() {
             to: "+15551234567".to_string(),
             text: "Hello".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;
@@ -210,6 +217,7 @@ async fn test_send_server_error() {
             to: "+15551234567".to_string(),
             text: "Hello".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;
@@ -239,6 +247,7 @@ async fn test_send_network_error() {
             to: "+15551234567".to_string(),
             text: "Hello".to_string(),
             message_type: None,
+            media_urls: None,
             metadata: None,
         })
         .await;

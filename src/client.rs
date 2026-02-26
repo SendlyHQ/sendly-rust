@@ -1,10 +1,11 @@
-use reqwest::{Client, Response, StatusCode};
+use reqwest::{multipart, Client, Response, StatusCode};
 use std::time::Duration;
 
 use crate::account_resource::AccountResource;
 use crate::campaigns::CampaignsResource;
 use crate::contacts::ContactsResource;
 use crate::error::{ApiErrorResponse, Error, Result};
+use crate::media::Media;
 use crate::messages::Messages;
 use crate::templates::TemplatesResource;
 use crate::verify::VerifyResource;
@@ -155,6 +156,11 @@ impl Sendly {
         ContactsResource::new(self)
     }
 
+    /// Returns the Media resource.
+    pub fn media(&self) -> Media {
+        Media::new(self)
+    }
+
     /// Makes a GET request.
     pub(crate) async fn get(&self, path: &str, query: &[(String, String)]) -> Result<Response> {
         self.request_with_retry(|| async {
@@ -210,6 +216,38 @@ impl Sendly {
                 .await
         })
         .await
+    }
+
+    /// Makes a multipart POST request.
+    pub(crate) async fn post_multipart(
+        &self,
+        path: &str,
+        form: multipart::Form,
+    ) -> Result<Response> {
+        let url = format!("{}{}", self.config.base_url, path);
+
+        let response = self
+            .client
+            .post(&url)
+            .multipart(form)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Accept", "application/json")
+            .header("User-Agent", format!("sendly-rs/{}", VERSION))
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    Error::Timeout
+                } else if e.is_connect() {
+                    Error::Network {
+                        message: e.to_string(),
+                    }
+                } else {
+                    Error::Http(e)
+                }
+            })?;
+
+        self.handle_response(response).await
     }
 
     /// Makes a DELETE request.
