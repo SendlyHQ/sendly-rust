@@ -433,6 +433,74 @@ Use test API keys (`sk_test_v1_xxx`) with these test numbers:
 - Comprehensive error types
 - Stream-based pagination
 
+## Enterprise
+
+The Enterprise API lets you programmatically manage workspaces, verification, credits, and API keys for multi-tenant platforms. Requires an enterprise master key (`sk_live_v1_master_*`).
+
+### Quick Provision
+
+Create a fully configured workspace in a single call:
+
+```rust
+let client = Sendly::new("sk_live_v1_master_YOUR_KEY");
+
+let options = ProvisionWorkspaceOptions::new("Acme Insurance - Austin")
+    .source_workspace_id("ws_verified")
+    .credit_amount(5000)
+    .credit_source_workspace_id("ws_pool")
+    .key_name("Production")
+    .key_type("live")
+    .generate_opt_in_page(true);
+
+let result = client.enterprise().provision(&options).await?;
+
+println!("{}", result.workspace.id);
+println!("{}", result.api_key.as_ref().unwrap().raw_key);
+```
+
+Three provisioning modes:
+
+| Mode | Params | Description |
+|------|--------|-------------|
+| **Inherit** | `.source_workspace_id()` | Shares toll-free number from verified workspace |
+| **Inherit + New Number** | `.source_workspace_id()` + `.inherit_with_new_number(true)` | Copies business info, purchases new number |
+| **Fresh** | `.verification(VerificationData{...})` | Full business details, new number + carrier approval |
+
+### Workspace Management
+
+```rust
+let ws = client.enterprise().workspaces().create("Acme Insurance", None).await?;
+let list = client.enterprise().workspaces().list().await?;
+let detail = client.enterprise().workspaces().get("ws_xxx").await?;
+client.enterprise().workspaces().delete("ws_xxx").await?;
+```
+
+### Credits & API Keys
+
+```rust
+client.enterprise().workspaces()
+    .transfer_credits("ws_dest", "ws_source", 5000).await?;
+
+let key = client.enterprise().workspaces()
+    .create_key("ws_xxx", Some("Production"), Some("live")).await?;
+println!("{}", key.raw_key);
+
+client.enterprise().workspaces().revoke_key("ws_xxx", "key_abc").await?;
+```
+
+### Webhooks & Analytics
+
+```rust
+client.enterprise().webhooks().set("https://yourapp.com/webhooks").await?;
+let overview = client.enterprise().analytics().overview().await?;
+let messages = client.enterprise().analytics().messages(Some("30d"), None).await?;
+let delivery = client.enterprise().analytics().delivery().await?;
+```
+
+Full enterprise docs: [sendly.live/docs/enterprise](https://sendly.live/docs/enterprise)
+
+---
+
 ## License
 
 MIT

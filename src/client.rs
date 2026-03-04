@@ -4,6 +4,7 @@ use std::time::Duration;
 use crate::account_resource::AccountResource;
 use crate::campaigns::CampaignsResource;
 use crate::contacts::ContactsResource;
+use crate::enterprise::EnterpriseResource;
 use crate::error::{ApiErrorResponse, Error, Result};
 use crate::media::Media;
 use crate::messages::Messages;
@@ -161,6 +162,11 @@ impl Sendly {
         Media::new(self)
     }
 
+    /// Returns the Enterprise resource.
+    pub fn enterprise(&self) -> EnterpriseResource {
+        EnterpriseResource::new(self)
+    }
+
     /// Makes a GET request.
     pub(crate) async fn get(&self, path: &str, query: &[(String, String)]) -> Result<Response> {
         self.request_with_retry(|| async {
@@ -185,6 +191,24 @@ impl Sendly {
 
             self.client
                 .post(&url)
+                .json(body)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("User-Agent", format!("sendly-rs/{}", VERSION))
+                .send()
+                .await
+        })
+        .await
+    }
+
+    /// Makes a PUT request.
+    pub(crate) async fn put<T: serde::Serialize>(&self, path: &str, body: &T) -> Result<Response> {
+        self.request_with_retry(|| async {
+            let url = format!("{}{}", self.config.base_url, path);
+
+            self.client
+                .put(&url)
                 .json(body)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")

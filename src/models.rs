@@ -1342,3 +1342,1019 @@ pub struct Account {
     #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
 }
+
+// ==================== Enterprise Types ====================
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnterpriseWorkspaceSummary {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default, alias = "verificationStatus")]
+    pub verification_status: Option<String>,
+    #[serde(default, alias = "verificationType")]
+    pub verification_type: Option<String>,
+    #[serde(default, alias = "tollFreeNumber")]
+    pub toll_free_number: Option<String>,
+    #[serde(default, alias = "creditBalance")]
+    pub credit_balance: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnterpriseAccount {
+    pub id: String,
+    #[serde(default, alias = "maxWorkspaces")]
+    pub max_workspaces: i32,
+    #[serde(default, alias = "workspaceCount")]
+    pub workspace_count: i32,
+    #[serde(default)]
+    pub workspaces: Vec<EnterpriseWorkspaceSummary>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateWorkspaceRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl CreateWorkspaceRequest {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: None,
+        }
+    }
+
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnterpriseWorkspace {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnterpriseWorkspaceVerification {
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, rename = "type")]
+    pub verification_type: Option<String>,
+    #[serde(default, alias = "tollFreeNumber")]
+    pub toll_free_number: Option<String>,
+    #[serde(default, alias = "businessName")]
+    pub business_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnterpriseWorkspaceDetail {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub verification: Option<EnterpriseWorkspaceVerification>,
+    #[serde(default)]
+    pub credits: i64,
+    #[serde(default, alias = "keyCount")]
+    pub key_count: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeleteWorkspaceResponse {
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default, alias = "deletedId")]
+    pub deleted_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SubmitVerificationRequest {
+    #[serde(rename = "businessName")]
+    pub business_name: String,
+    pub website: String,
+    pub address: VerificationAddress,
+    pub contact: VerificationContact,
+    #[serde(rename = "useCase")]
+    pub use_case: String,
+    #[serde(rename = "useCaseSummary")]
+    pub use_case_summary: String,
+    #[serde(rename = "sampleMessages")]
+    pub sample_messages: String,
+    #[serde(rename = "optInWorkflow")]
+    pub opt_in_workflow: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "doingBusinessAs")]
+    pub doing_business_as: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "brnType")]
+    pub brn_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "brnCountry")]
+    pub brn_country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "optInImageUrls")]
+    pub opt_in_image_urls: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "monthlyVolume")]
+    pub monthly_volume: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "additionalInformation"
+    )]
+    pub additional_information: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "ageGatedContent")]
+    pub age_gated_content: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isvReseller")]
+    pub isv_reseller: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "privacyUrl")]
+    pub privacy_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "termsUrl")]
+    pub terms_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "entityType")]
+    pub entity_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VerificationAddress {
+    pub street: String,
+    pub city: String,
+    pub state: String,
+    pub zip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address2: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VerificationContact {
+    #[serde(rename = "firstName")]
+    pub first_name: String,
+    #[serde(rename = "lastName")]
+    pub last_name: String,
+    pub email: String,
+    pub phone: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SubmitVerificationResponse {
+    #[serde(default, alias = "verificationId")]
+    pub verification_id: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, alias = "tollFreeNumber")]
+    pub toll_free_number: Option<String>,
+    #[serde(default, alias = "businessName")]
+    pub business_name: Option<String>,
+    #[serde(default, alias = "telnyxProfileId")]
+    pub telnyx_profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InheritVerificationRequest {
+    #[serde(rename = "sourceWorkspaceId")]
+    pub source_workspace_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InheritVerificationResponse {
+    #[serde(default, alias = "verificationId")]
+    pub verification_id: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, rename = "type")]
+    pub verification_type: Option<String>,
+    #[serde(default, alias = "tollFreeNumber")]
+    pub toll_free_number: Option<String>,
+    #[serde(default, alias = "inheritedFrom")]
+    pub inherited_from: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceVerificationStatus {
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, alias = "verificationId")]
+    pub verification_id: Option<String>,
+    #[serde(default, rename = "type")]
+    pub verification_type: Option<String>,
+    #[serde(default, alias = "tollFreeNumber")]
+    pub toll_free_number: Option<String>,
+    #[serde(default, alias = "businessName")]
+    pub business_name: Option<String>,
+    #[serde(default, alias = "submittedAt")]
+    pub submitted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkspaceTransferCreditsRequest {
+    #[serde(rename = "sourceWorkspaceId")]
+    pub source_workspace_id: String,
+    pub amount: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceTransferCreditsResponse {
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub amount: i32,
+    #[serde(default, alias = "sourceBalance")]
+    pub source_balance: i64,
+    #[serde(default, alias = "targetBalance")]
+    pub target_balance: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceCredits {
+    #[serde(default)]
+    pub balance: i64,
+    #[serde(default, alias = "lifetimeCredits")]
+    pub lifetime_credits: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateWorkspaceKeyRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    pub key_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
+}
+
+impl CreateWorkspaceKeyRequest {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            key_type: None,
+            scopes: None,
+        }
+    }
+
+    pub fn key_type(mut self, key_type: impl Into<String>) -> Self {
+        self.key_type = Some(key_type.into());
+        self
+    }
+
+    pub fn scopes(mut self, scopes: Vec<impl Into<String>>) -> Self {
+        self.scopes = Some(scopes.into_iter().map(|s| s.into()).collect());
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceKeyResponse {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub key: String,
+    #[serde(default, alias = "keyPrefix")]
+    pub key_prefix: String,
+    #[serde(default, rename = "type")]
+    pub key_type: String,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceKey {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, alias = "keyPrefix")]
+    pub key_prefix: String,
+    #[serde(default, rename = "type")]
+    pub key_type: String,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default, alias = "lastUsedAt")]
+    pub last_used_at: Option<String>,
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RevokeKeyResponse {
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default, alias = "revokedId")]
+    pub revoked_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProvisionWorkspaceRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sourceWorkspaceId")]
+    pub source_workspace_id: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "inheritWithNewNumber"
+    )]
+    pub inherit_with_new_number: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification: Option<SubmitVerificationRequest>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "creditAmount")]
+    pub credit_amount: Option<i32>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "creditSourceWorkspaceId"
+    )]
+    pub credit_source_workspace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "keyName")]
+    pub key_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "keyType")]
+    pub key_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "webhookUrl")]
+    pub webhook_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "generateOptInPage")]
+    pub generate_opt_in_page: Option<bool>,
+}
+
+impl ProvisionWorkspaceRequest {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            source_workspace_id: None,
+            inherit_with_new_number: None,
+            verification: None,
+            credit_amount: None,
+            credit_source_workspace_id: None,
+            key_name: None,
+            key_type: None,
+            webhook_url: None,
+            generate_opt_in_page: None,
+        }
+    }
+
+    pub fn source_workspace_id(mut self, id: impl Into<String>) -> Self {
+        self.source_workspace_id = Some(id.into());
+        self
+    }
+
+    pub fn key_name(mut self, name: impl Into<String>) -> Self {
+        self.key_name = Some(name.into());
+        self
+    }
+
+    pub fn key_type(mut self, key_type: impl Into<String>) -> Self {
+        self.key_type = Some(key_type.into());
+        self
+    }
+
+    pub fn webhook_url(mut self, url: impl Into<String>) -> Self {
+        self.webhook_url = Some(url.into());
+        self
+    }
+
+    pub fn credit_amount(mut self, amount: i32) -> Self {
+        self.credit_amount = Some(amount);
+        self
+    }
+
+    pub fn credit_source_workspace_id(mut self, id: impl Into<String>) -> Self {
+        self.credit_source_workspace_id = Some(id.into());
+        self
+    }
+
+    pub fn inherit_with_new_number(mut self, value: bool) -> Self {
+        self.inherit_with_new_number = Some(value);
+        self
+    }
+
+    pub fn generate_opt_in_page(mut self, value: bool) -> Self {
+        self.generate_opt_in_page = Some(value);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProvisionWorkspaceResponse {
+    #[serde(default)]
+    pub workspace: Option<EnterpriseWorkspace>,
+    #[serde(default)]
+    pub verification: Option<serde_json::Value>,
+    #[serde(default)]
+    pub credits: Option<serde_json::Value>,
+    #[serde(default)]
+    pub key: Option<serde_json::Value>,
+    #[serde(default)]
+    pub webhook: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SetEnterpriseWebhookRequest {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnterpriseWebhook {
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnterpriseWebhookTestResult {
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default, alias = "statusCode")]
+    pub status_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AnalyticsOverview {
+    #[serde(default, alias = "totalMessages")]
+    pub total_messages: i64,
+    #[serde(default, alias = "deliveredMessages")]
+    pub delivered_messages: i64,
+    #[serde(default, alias = "failedMessages")]
+    pub failed_messages: i64,
+    #[serde(default, alias = "deliveryRate")]
+    pub delivery_rate: f64,
+    #[serde(default, alias = "totalCreditsUsed")]
+    pub total_credits_used: i64,
+    #[serde(default, alias = "activeWorkspaces")]
+    pub active_workspaces: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MessageDataPoint {
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub sent: i64,
+    #[serde(default)]
+    pub delivered: i64,
+    #[serde(default)]
+    pub failed: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MessagesAnalytics {
+    #[serde(default)]
+    pub period: String,
+    #[serde(default)]
+    pub data: Vec<MessageDataPoint>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeliveryByWorkspace {
+    #[serde(default, alias = "workspaceId")]
+    pub workspace_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub sent: i64,
+    #[serde(default)]
+    pub delivered: i64,
+    #[serde(default)]
+    pub failed: i64,
+    #[serde(default)]
+    pub rate: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreditDataPoint {
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub used: i64,
+    #[serde(default)]
+    pub transferred: i64,
+    #[serde(default)]
+    pub purchased: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreditsAnalytics {
+    #[serde(default)]
+    pub period: String,
+    #[serde(default)]
+    pub data: Vec<CreditDataPoint>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AnalyticsPeriod {
+    pub period: Option<String>,
+    pub workspace_id: Option<String>,
+}
+
+impl AnalyticsPeriod {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn period(mut self, period: impl Into<String>) -> Self {
+        self.period = Some(period.into());
+        self
+    }
+
+    pub fn workspace_id(mut self, id: impl Into<String>) -> Self {
+        self.workspace_id = Some(id.into());
+        self
+    }
+
+    pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(ref period) = self.period {
+            params.push(("period".to_string(), period.clone()));
+        }
+        if let Some(ref id) = self.workspace_id {
+            params.push(("workspaceId".to_string(), id.clone()));
+        }
+        params
+    }
+}
+
+// ==================== Enterprise Opt-In Pages ====================
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OptInPage {
+    pub id: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default, alias = "businessName")]
+    pub business_name: String,
+    #[serde(default, alias = "useCase")]
+    pub use_case: Option<String>,
+    #[serde(default = "default_true", alias = "isActive")]
+    pub is_active: bool,
+    #[serde(default, alias = "viewCount")]
+    pub view_count: i32,
+    #[serde(default, alias = "logoUrl")]
+    pub logo_url: Option<String>,
+    #[serde(default, alias = "headerColor")]
+    pub header_color: Option<String>,
+    #[serde(default, alias = "buttonColor")]
+    pub button_color: Option<String>,
+    #[serde(default, alias = "customHeadline")]
+    pub custom_headline: Option<String>,
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateOptInPageRequest {
+    #[serde(rename = "businessName")]
+    pub business_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "useCase")]
+    pub use_case: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "useCaseSummary")]
+    pub use_case_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sampleMessages")]
+    pub sample_messages: Option<String>,
+}
+
+impl CreateOptInPageRequest {
+    pub fn new(business_name: impl Into<String>) -> Self {
+        Self {
+            business_name: business_name.into(),
+            use_case: None,
+            use_case_summary: None,
+            sample_messages: None,
+        }
+    }
+
+    pub fn use_case(mut self, use_case: impl Into<String>) -> Self {
+        self.use_case = Some(use_case.into());
+        self
+    }
+
+    pub fn use_case_summary(mut self, summary: impl Into<String>) -> Self {
+        self.use_case_summary = Some(summary.into());
+        self
+    }
+
+    pub fn sample_messages(mut self, messages: impl Into<String>) -> Self {
+        self.sample_messages = Some(messages.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateOptInPageResponse {
+    pub id: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default, alias = "businessName")]
+    pub business_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct UpdateOptInPageRequest {
+    #[serde(skip_serializing_if = "Option::is_none", rename = "logoUrl")]
+    pub logo_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "headerColor")]
+    pub header_color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "buttonColor")]
+    pub button_color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "customHeadline")]
+    pub custom_headline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "customBenefits")]
+    pub custom_benefits: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeleteOptInPageResponse {
+    #[serde(default)]
+    pub success: bool,
+}
+
+// ==================== Enterprise Workspace Webhooks ====================
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceWebhookConfig {
+    pub id: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub events: Vec<String>,
+    #[serde(default = "default_true", alias = "isActive")]
+    pub is_active: bool,
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SetWorkspaceWebhookRequest {
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl SetWorkspaceWebhookRequest {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            events: None,
+            description: None,
+        }
+    }
+
+    pub fn events(mut self, events: Vec<impl Into<String>>) -> Self {
+        self.events = Some(events.into_iter().map(|e| e.into()).collect());
+        self
+    }
+
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetWorkspaceWebhookResponse {
+    pub id: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub events: Vec<String>,
+    #[serde(default)]
+    pub secret: Option<String>,
+    #[serde(default)]
+    pub created: Option<bool>,
+    #[serde(default)]
+    pub updated: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceWebhookTestResult {
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default, alias = "statusCode")]
+    pub status_code: Option<i32>,
+}
+
+// ==================== Enterprise Suspend/Resume ====================
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct SuspendWorkspaceRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SuspendWorkspaceResponse {
+    pub id: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, alias = "suspendedAt")]
+    pub suspended_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResumeWorkspaceResponse {
+    pub id: String,
+    #[serde(default)]
+    pub status: String,
+}
+
+// ==================== Enterprise Auto Top-Up ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoTopUpSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub threshold: i32,
+    #[serde(default)]
+    pub amount: i32,
+    #[serde(default, alias = "sourceWorkspaceId")]
+    pub source_workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateAutoTopUpRequest {
+    pub enabled: bool,
+    pub threshold: i32,
+    pub amount: i32,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sourceWorkspaceId")]
+    pub source_workspace_id: Option<String>,
+}
+
+// ==================== Enterprise Billing ====================
+
+#[derive(Debug, Clone, Default)]
+pub struct BillingBreakdownOptions {
+    pub period: Option<String>,
+    pub page: Option<u32>,
+    pub limit: Option<u32>,
+}
+
+impl BillingBreakdownOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn period(mut self, period: impl Into<String>) -> Self {
+        self.period = Some(period.into());
+        self
+    }
+
+    pub fn page(mut self, page: u32) -> Self {
+        self.page = Some(page);
+        self
+    }
+
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(ref period) = self.period {
+            params.push(("period".to_string(), period.clone()));
+        }
+        if let Some(page) = self.page {
+            params.push(("page".to_string(), page.to_string()));
+        }
+        if let Some(limit) = self.limit {
+            params.push(("limit".to_string(), limit.to_string()));
+        }
+        params
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceBillingItem {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, alias = "creditsUsed")]
+    pub credits_used: i64,
+    #[serde(default, alias = "creditsPurchased")]
+    pub credits_purchased: i64,
+    #[serde(default, alias = "creditsTransferredIn")]
+    pub credits_transferred_in: i64,
+    #[serde(default, alias = "creditsTransferredOut")]
+    pub credits_transferred_out: i64,
+    #[serde(default, alias = "messagesSent")]
+    pub messages_sent: i64,
+    #[serde(default, alias = "messagesDelivered")]
+    pub messages_delivered: i64,
+    #[serde(default, alias = "workspaceFee")]
+    pub workspace_fee: f64,
+    #[serde(default, alias = "allocatedPlatformFee")]
+    pub allocated_platform_fee: f64,
+    #[serde(default, alias = "totalCost")]
+    pub total_cost: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BillingBreakdownSummary {
+    #[serde(default, alias = "platformFee")]
+    pub platform_fee: f64,
+    #[serde(default, alias = "totalWorkspaceFees")]
+    pub total_workspace_fees: f64,
+    #[serde(default, alias = "totalCreditsUsed")]
+    pub total_credits_used: i64,
+    #[serde(default, alias = "totalCost")]
+    pub total_cost: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BillingBreakdown {
+    #[serde(default)]
+    pub period: String,
+    #[serde(default)]
+    pub summary: Option<BillingBreakdownSummary>,
+    #[serde(default)]
+    pub workspaces: Vec<WorkspaceBillingItem>,
+}
+
+// ==================== Enterprise Bulk Provision ====================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BulkProvisionWorkspace {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sourceWorkspaceId")]
+    pub source_workspace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "creditAmount")]
+    pub credit_amount: Option<i32>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "creditSourceWorkspaceId"
+    )]
+    pub credit_source_workspace_id: Option<String>,
+}
+
+impl BulkProvisionWorkspace {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            source_workspace_id: None,
+            credit_amount: None,
+            credit_source_workspace_id: None,
+        }
+    }
+
+    pub fn source_workspace_id(mut self, id: impl Into<String>) -> Self {
+        self.source_workspace_id = Some(id.into());
+        self
+    }
+
+    pub fn credit_amount(mut self, amount: i32) -> Self {
+        self.credit_amount = Some(amount);
+        self
+    }
+
+    pub fn credit_source_workspace_id(mut self, id: impl Into<String>) -> Self {
+        self.credit_source_workspace_id = Some(id.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BulkProvisionRequest {
+    pub workspaces: Vec<BulkProvisionWorkspace>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BulkProvisionResultItem {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, alias = "workspaceId")]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub warning: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BulkProvisionSummary {
+    #[serde(default)]
+    pub total: i32,
+    #[serde(default)]
+    pub succeeded: i32,
+    #[serde(default)]
+    pub failed: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BulkProvisionResult {
+    #[serde(default)]
+    pub results: Vec<BulkProvisionResultItem>,
+    #[serde(default)]
+    pub summary: Option<BulkProvisionSummary>,
+}
+
+// ==================== Enterprise Custom Domain ====================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SetCustomDomainRequest {
+    pub domain: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DnsRecord {
+    #[serde(default, rename = "type")]
+    pub record_type: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DnsInstructions {
+    #[serde(default)]
+    pub cname: Option<DnsRecord>,
+    #[serde(default)]
+    pub txt: Option<DnsRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetCustomDomainResponse {
+    #[serde(default)]
+    pub domain: String,
+    #[serde(default)]
+    pub verified: bool,
+    #[serde(default, alias = "dnsInstructions")]
+    pub dns_instructions: Option<DnsInstructions>,
+}
+
+// ==================== Enterprise Invitations ====================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SendInvitationRequest {
+    pub email: String,
+    pub role: String,
+}
+
+impl SendInvitationRequest {
+    pub fn new(email: impl Into<String>, role: impl Into<String>) -> Self {
+        Self {
+            email: email.into(),
+            role: role.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Invitation {
+    pub id: String,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, alias = "expiresAt")]
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CancelInvitationResponse {
+    #[serde(default)]
+    pub success: bool,
+}
+
+// ==================== Enterprise Quota ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaSettings {
+    #[serde(default, alias = "monthlyMessageQuota")]
+    pub monthly_message_quota: Option<i64>,
+    #[serde(default, alias = "messagesThisMonth")]
+    pub messages_this_month: i64,
+    #[serde(default, alias = "quotaResetAt")]
+    pub quota_reset_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateQuotaRequest {
+    #[serde(rename = "monthlyMessageQuota")]
+    pub monthly_message_quota: Option<i64>,
+}
