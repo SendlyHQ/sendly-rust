@@ -141,7 +141,7 @@ fn default_segments() -> i32 {
 }
 
 /// Webhook event from Sendly
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct WebhookEvent {
     /// Unique event ID
     pub id: String,
@@ -149,7 +149,7 @@ pub struct WebhookEvent {
     #[serde(rename = "type")]
     pub event_type: WebhookEventType,
     /// Event data
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     pub data: WebhookMessageData,
     /// When the event was created (unix timestamp)
     #[serde(default)]
