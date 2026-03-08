@@ -27,6 +27,7 @@ pub struct SendlyConfig {
     pub timeout: Duration,
     /// Maximum retry attempts.
     pub max_retries: u32,
+    pub organization_id: Option<String>,
 }
 
 impl Default for SendlyConfig {
@@ -35,6 +36,7 @@ impl Default for SendlyConfig {
             base_url: DEFAULT_BASE_URL.to_string(),
             timeout: Duration::from_secs(30),
             max_retries: 3,
+            organization_id: None,
         }
     }
 }
@@ -62,6 +64,11 @@ impl SendlyConfig {
         self.max_retries = retries;
         self
     }
+
+    pub fn organization_id(mut self, id: impl Into<String>) -> Self {
+        self.organization_id = Some(id.into());
+        self
+    }
 }
 
 /// Sendly API client.
@@ -70,6 +77,7 @@ pub struct Sendly {
     api_key: String,
     config: SendlyConfig,
     client: Client,
+    organization_id: Option<String>,
 }
 
 impl Sendly {
@@ -115,10 +123,16 @@ impl Sendly {
             .build()
             .expect("Failed to build HTTP client");
 
+        let organization_id = config
+            .organization_id
+            .clone()
+            .or_else(|| std::env::var("SENDLY_ORG_ID").ok());
+
         Self {
             api_key: api_key.into(),
             config,
             client,
+            organization_id,
         }
     }
 
@@ -168,18 +182,27 @@ impl Sendly {
     }
 
     /// Makes a GET request.
+    pub fn set_organization_id(&mut self, id: impl Into<String>) {
+        self.organization_id = Some(id.into());
+    }
+
     pub(crate) async fn get(&self, path: &str, query: &[(String, String)]) -> Result<Response> {
         self.request_with_retry(|| async {
             let url = format!("{}{}", self.config.base_url, path);
 
-            self.client
+            let req = self
+                .client
                 .get(&url)
                 .query(query)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Accept", "application/json")
-                .header("User-Agent", format!("sendly-rs/{}", VERSION))
-                .send()
-                .await
+                .header("User-Agent", format!("sendly-rs/{}", VERSION));
+            let req = if let Some(ref org_id) = self.organization_id {
+                req.header("X-Organization-Id", org_id)
+            } else {
+                req
+            };
+            req.send().await
         })
         .await
     }
@@ -189,15 +212,20 @@ impl Sendly {
         self.request_with_retry(|| async {
             let url = format!("{}{}", self.config.base_url, path);
 
-            self.client
+            let req = self
+                .client
                 .post(&url)
                 .json(body)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .header("User-Agent", format!("sendly-rs/{}", VERSION))
-                .send()
-                .await
+                .header("User-Agent", format!("sendly-rs/{}", VERSION));
+            let req = if let Some(ref org_id) = self.organization_id {
+                req.header("X-Organization-Id", org_id)
+            } else {
+                req
+            };
+            req.send().await
         })
         .await
     }
@@ -207,15 +235,20 @@ impl Sendly {
         self.request_with_retry(|| async {
             let url = format!("{}{}", self.config.base_url, path);
 
-            self.client
+            let req = self
+                .client
                 .put(&url)
                 .json(body)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .header("User-Agent", format!("sendly-rs/{}", VERSION))
-                .send()
-                .await
+                .header("User-Agent", format!("sendly-rs/{}", VERSION));
+            let req = if let Some(ref org_id) = self.organization_id {
+                req.header("X-Organization-Id", org_id)
+            } else {
+                req
+            };
+            req.send().await
         })
         .await
     }
@@ -229,15 +262,20 @@ impl Sendly {
         self.request_with_retry(|| async {
             let url = format!("{}{}", self.config.base_url, path);
 
-            self.client
+            let req = self
+                .client
                 .patch(&url)
                 .json(body)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .header("User-Agent", format!("sendly-rs/{}", VERSION))
-                .send()
-                .await
+                .header("User-Agent", format!("sendly-rs/{}", VERSION));
+            let req = if let Some(ref org_id) = self.organization_id {
+                req.header("X-Organization-Id", org_id)
+            } else {
+                req
+            };
+            req.send().await
         })
         .await
     }
@@ -250,13 +288,19 @@ impl Sendly {
     ) -> Result<Response> {
         let url = format!("{}{}", self.config.base_url, path);
 
-        let response = self
+        let req = self
             .client
             .post(&url)
             .multipart(form)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Accept", "application/json")
-            .header("User-Agent", format!("sendly-rs/{}", VERSION))
+            .header("User-Agent", format!("sendly-rs/{}", VERSION));
+        let req = if let Some(ref org_id) = self.organization_id {
+            req.header("X-Organization-Id", org_id)
+        } else {
+            req
+        };
+        let response = req
             .send()
             .await
             .map_err(|e| {
@@ -279,13 +323,18 @@ impl Sendly {
         self.request_with_retry(|| async {
             let url = format!("{}{}", self.config.base_url, path);
 
-            self.client
+            let req = self
+                .client
                 .delete(&url)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Accept", "application/json")
-                .header("User-Agent", format!("sendly-rs/{}", VERSION))
-                .send()
-                .await
+                .header("User-Agent", format!("sendly-rs/{}", VERSION));
+            let req = if let Some(ref org_id) = self.organization_id {
+                req.header("X-Organization-Id", org_id)
+            } else {
+                req
+            };
+            req.send().await
         })
         .await
     }
