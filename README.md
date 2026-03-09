@@ -447,7 +447,7 @@ let client = Sendly::new("sk_live_v1_master_YOUR_KEY");
 let options = ProvisionWorkspaceOptions::new("Acme Insurance - Austin")
     .source_workspace_id("ws_verified")
     .credit_amount(5000)
-    .credit_source_workspace_id("ws_pool")
+    .credit_source_workspace_id("SOURCE_WORKSPACE_ID")
     .key_name("Production")
     .key_type("live")
     .generate_opt_in_page(true);
@@ -455,7 +455,7 @@ let options = ProvisionWorkspaceOptions::new("Acme Insurance - Austin")
 let result = client.enterprise().provision(&options).await?;
 
 println!("{}", result.workspace.id);
-println!("{}", result.api_key.as_ref().unwrap().raw_key);
+println!("{}", result.key.as_ref().unwrap().key);
 ```
 
 Three provisioning modes:
@@ -483,7 +483,7 @@ client.enterprise().workspaces()
 
 let key = client.enterprise().workspaces()
     .create_key("ws_xxx", Some("Production"), Some("live")).await?;
-println!("{}", key.raw_key);
+println!("{}", key.key);
 
 client.enterprise().workspaces().revoke_key("ws_xxx", "key_abc").await?;
 ```
