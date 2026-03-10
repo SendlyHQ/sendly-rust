@@ -478,7 +478,7 @@ impl<'a> EnterpriseCreditsResource<'a> {
     }
 
     pub async fn get(&self) -> Result<PoolCredits> {
-        let response = self.client.get("/enterprise/credits/pool", &[]).await?;
+        let response = self.client.get("/enterprise/credits", &[]).await?;
         Ok(response.json().await?)
     }
 
@@ -493,7 +493,7 @@ impl<'a> EnterpriseCreditsResource<'a> {
         };
         let response = self
             .client
-            .post("/enterprise/credits/pool/deposit", &request)
+            .post("/enterprise/credits/deposit", &request)
             .await?;
         Ok(response.json().await?)
     }
