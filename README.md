@@ -9,7 +9,7 @@
 
 # Sendly Rust SDK
 
-Official Rust SDK for the Sendly SMS & MMS API.
+Official Rust SDK for the Sendly SMS API.
 
 ## Installation
 

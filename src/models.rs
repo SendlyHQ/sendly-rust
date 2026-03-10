@@ -2075,6 +2075,25 @@ pub struct ResumeWorkspaceResponse {
     pub status: String,
 }
 
+// ==================== Enterprise Pool Credits ====================
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PoolCredits {
+    #[serde(default)]
+    pub balance: i64,
+    #[serde(default, alias = "lifetimeCredits")]
+    pub lifetime_credits: i64,
+    #[serde(default, alias = "reservedBalance")]
+    pub reserved_balance: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DepositCreditsRequest {
+    pub amount: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 // ==================== Enterprise Auto Top-Up ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

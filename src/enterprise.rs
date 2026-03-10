@@ -5,17 +5,18 @@ use crate::models::{
     BillingBreakdownOptions, BulkProvisionRequest, BulkProvisionResult, BulkProvisionWorkspace,
     CancelInvitationResponse, CreateOptInPageRequest, CreateOptInPageResponse,
     CreateWorkspaceKeyRequest, CreateWorkspaceRequest, CreditsAnalytics, DeleteOptInPageResponse,
-    DeleteWorkspaceResponse, DeliveryByWorkspace, EnterpriseAccount, EnterpriseWebhook,
-    EnterpriseWebhookTestResult, EnterpriseWorkspace, EnterpriseWorkspaceDetail,
-    InheritVerificationRequest, InheritVerificationResponse, Invitation, MessagesAnalytics,
-    OptInPage, ProvisionWorkspaceRequest, ProvisionWorkspaceResponse, QuotaSettings,
-    ResumeWorkspaceResponse, RevokeKeyResponse, SendInvitationRequest, SetCustomDomainRequest,
-    SetCustomDomainResponse, SetEnterpriseWebhookRequest, SetWorkspaceWebhookRequest,
-    SetWorkspaceWebhookResponse, SubmitVerificationRequest, SubmitVerificationResponse,
-    SuspendWorkspaceRequest, SuspendWorkspaceResponse, UpdateAutoTopUpRequest,
-    UpdateOptInPageRequest, UpdateQuotaRequest, WorkspaceCredits, WorkspaceKey,
-    WorkspaceKeyResponse, WorkspaceTransferCreditsRequest, WorkspaceTransferCreditsResponse,
-    WorkspaceVerificationStatus, WorkspaceWebhookConfig, WorkspaceWebhookTestResult,
+    DeleteWorkspaceResponse, DeliveryByWorkspace, DepositCreditsRequest, EnterpriseAccount,
+    EnterpriseWebhook, EnterpriseWebhookTestResult, EnterpriseWorkspace,
+    EnterpriseWorkspaceDetail, InheritVerificationRequest, InheritVerificationResponse, Invitation,
+    MessagesAnalytics, OptInPage, PoolCredits, ProvisionWorkspaceRequest,
+    ProvisionWorkspaceResponse, QuotaSettings, ResumeWorkspaceResponse, RevokeKeyResponse,
+    SendInvitationRequest, SetCustomDomainRequest, SetCustomDomainResponse,
+    SetEnterpriseWebhookRequest, SetWorkspaceWebhookRequest, SetWorkspaceWebhookResponse,
+    SubmitVerificationRequest, SubmitVerificationResponse, SuspendWorkspaceRequest,
+    SuspendWorkspaceResponse, UpdateAutoTopUpRequest, UpdateOptInPageRequest, UpdateQuotaRequest,
+    WorkspaceCredits, WorkspaceKey, WorkspaceKeyResponse, WorkspaceTransferCreditsRequest,
+    WorkspaceTransferCreditsResponse, WorkspaceVerificationStatus, WorkspaceWebhookConfig,
+    WorkspaceWebhookTestResult,
 };
 
 pub struct WorkspacesResource<'a> {
@@ -467,6 +468,37 @@ impl<'a> EnterpriseBillingResource<'a> {
     }
 }
 
+pub struct EnterpriseCreditsResource<'a> {
+    client: &'a Sendly,
+}
+
+impl<'a> EnterpriseCreditsResource<'a> {
+    pub fn new(client: &'a Sendly) -> Self {
+        Self { client }
+    }
+
+    pub async fn get(&self) -> Result<PoolCredits> {
+        let response = self.client.get("/enterprise/credits/pool", &[]).await?;
+        Ok(response.json().await?)
+    }
+
+    pub async fn deposit(
+        &self,
+        amount: i64,
+        description: Option<&str>,
+    ) -> Result<PoolCredits> {
+        let request = DepositCreditsRequest {
+            amount,
+            description: description.map(|s| s.to_string()),
+        };
+        let response = self
+            .client
+            .post("/enterprise/credits/pool/deposit", &request)
+            .await?;
+        Ok(response.json().await?)
+    }
+}
+
 pub struct EnterpriseResource<'a> {
     client: &'a Sendly,
 }
@@ -494,6 +526,10 @@ impl<'a> EnterpriseResource<'a> {
 
     pub fn billing(&self) -> EnterpriseBillingResource<'a> {
         EnterpriseBillingResource::new(self.client)
+    }
+
+    pub fn credits(&self) -> EnterpriseCreditsResource<'a> {
+        EnterpriseCreditsResource::new(self.client)
     }
 
     pub async fn get_account(&self) -> Result<EnterpriseAccount> {
