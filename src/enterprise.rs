@@ -371,6 +371,14 @@ impl<'a> EnterpriseWebhooksResource<'a> {
         let response = self.client.post("/enterprise/webhooks/test", &()).await?;
         Ok(response.json().await?)
     }
+
+    pub async fn rotate_secret(&self) -> Result<EnterpriseWebhook> {
+        let response = self
+            .client
+            .post("/enterprise/webhooks/rotate-secret", &())
+            .await?;
+        Ok(response.json().await?)
+    }
 }
 
 pub struct EnterpriseAnalyticsResource<'a> {
