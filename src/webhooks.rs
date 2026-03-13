@@ -60,6 +60,20 @@ pub enum WebhookEventType {
     MessageOptIn,
     #[serde(rename = "message.undelivered")]
     MessageUndelivered,
+    #[serde(rename = "verification.created")]
+    VerificationCreated,
+    #[serde(rename = "verification.delivered")]
+    VerificationDelivered,
+    #[serde(rename = "verification.verified")]
+    VerificationVerified,
+    #[serde(rename = "verification.expired")]
+    VerificationExpired,
+    #[serde(rename = "verification.failed")]
+    VerificationFailed,
+    #[serde(rename = "verification.resent")]
+    VerificationResent,
+    #[serde(rename = "verification.delivery_failed")]
+    VerificationDeliveryFailed,
 }
 
 /// Message status in webhook events
@@ -123,6 +137,10 @@ pub struct WebhookMessageData {
     /// Media URLs for MMS
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_urls: Option<Vec<String>>,
+    #[serde(default)]
+    pub retry_count: Option<i32>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 impl WebhookMessageData {
@@ -130,6 +148,43 @@ impl WebhookMessageData {
     pub fn message_id(&self) -> &str {
         &self.id
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookVerificationData {
+    pub id: String,
+    #[serde(default)]
+    pub organization_id: Option<String>,
+    pub phone: String,
+    pub status: String,
+    #[serde(default = "default_delivery_status")]
+    pub delivery_status: String,
+    #[serde(default)]
+    pub attempts: i32,
+    #[serde(default = "default_max_attempts")]
+    pub max_attempts: i32,
+    #[serde(default)]
+    pub expires_at: Option<serde_json::Value>,
+    #[serde(default)]
+    pub verified_at: Option<serde_json::Value>,
+    #[serde(default)]
+    pub created_at: Option<serde_json::Value>,
+    #[serde(default)]
+    pub app_name: Option<String>,
+    #[serde(default)]
+    pub template_id: Option<String>,
+    #[serde(default)]
+    pub profile_id: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+fn default_delivery_status() -> String {
+    "queued".to_string()
+}
+
+fn default_max_attempts() -> i32 {
+    3
 }
 
 fn default_direction() -> String {
