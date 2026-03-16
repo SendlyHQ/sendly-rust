@@ -4,6 +4,7 @@ use std::time::Duration;
 use crate::account_resource::AccountResource;
 use crate::campaigns::CampaignsResource;
 use crate::contacts::ContactsResource;
+use crate::conversations::ConversationsResource;
 use crate::enterprise::EnterpriseResource;
 use crate::error::{ApiErrorResponse, Error, Result};
 use crate::media::Media;
@@ -169,6 +170,11 @@ impl Sendly {
     /// Returns the Contacts resource.
     pub fn contacts(&self) -> ContactsResource {
         ContactsResource::new(self)
+    }
+
+    /// Returns the Conversations resource.
+    pub fn conversations(&self) -> ConversationsResource {
+        ConversationsResource::new(self)
     }
 
     /// Returns the Media resource.

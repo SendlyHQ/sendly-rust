@@ -90,7 +90,7 @@ pub struct Message {
     /// Type of sender.
     #[serde(default, alias = "senderType")]
     pub sender_type: Option<SenderType>,
-    /// Telnyx message ID for carrier tracking.
+    /// Carrier message ID for tracking.
     #[serde(default, alias = "telnyxMessageId")]
     pub telnyx_message_id: Option<String>,
     /// Warning message if any.
@@ -2376,4 +2376,268 @@ pub struct QuotaSettings {
 pub struct UpdateQuotaRequest {
     #[serde(rename = "monthlyMessageQuota")]
     pub monthly_message_quota: Option<i64>,
+}
+
+// ==================== Conversations ====================
+
+/// Conversation status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversationStatus {
+    /// Conversation is active.
+    Active,
+    /// Conversation is closed.
+    Closed,
+}
+
+impl std::fmt::Display for ConversationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConversationStatus::Active => write!(f, "active"),
+            ConversationStatus::Closed => write!(f, "closed"),
+        }
+    }
+}
+
+/// An SMS conversation thread.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Conversation {
+    /// Unique conversation identifier.
+    pub id: String,
+    /// Phone number of the contact.
+    #[serde(alias = "phoneNumber")]
+    pub phone_number: String,
+    /// Conversation status.
+    pub status: ConversationStatus,
+    /// Number of unread messages.
+    #[serde(default, alias = "unreadCount")]
+    pub unread_count: i32,
+    /// Total number of messages.
+    #[serde(default, alias = "messageCount")]
+    pub message_count: i32,
+    /// Text of the last message.
+    #[serde(default, alias = "lastMessageText")]
+    pub last_message_text: Option<String>,
+    /// When the last message was sent/received.
+    #[serde(default, alias = "lastMessageAt")]
+    pub last_message_at: Option<String>,
+    /// Direction of the last message.
+    #[serde(default, alias = "lastMessageDirection")]
+    pub last_message_direction: Option<String>,
+    /// Custom metadata.
+    #[serde(default)]
+    pub metadata: std::collections::HashMap<String, serde_json::Value>,
+    /// Conversation tags.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Associated contact ID.
+    #[serde(default, alias = "contactId")]
+    pub contact_id: Option<String>,
+    /// When the conversation was created.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    /// When the conversation was last updated.
+    #[serde(default, alias = "updatedAt")]
+    pub updated_at: Option<String>,
+}
+
+/// Pagination info for conversation lists.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationPagination {
+    /// Total number of conversations.
+    #[serde(default)]
+    pub total: i64,
+    /// Maximum number of conversations returned.
+    #[serde(default)]
+    pub limit: i32,
+    /// Number of conversations skipped.
+    #[serde(default)]
+    pub offset: i32,
+    /// Whether more conversations are available.
+    #[serde(default, alias = "hasMore")]
+    pub has_more: bool,
+}
+
+/// Response from listing conversations.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConversationListResponse {
+    /// List of conversations.
+    #[serde(default)]
+    pub data: Vec<Conversation>,
+    /// Pagination info.
+    pub pagination: ConversationPagination,
+}
+
+/// Messages within a conversation.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConversationMessages {
+    /// List of messages.
+    #[serde(default)]
+    pub data: Vec<Message>,
+    /// Pagination info.
+    pub pagination: ConversationPagination,
+}
+
+/// A conversation with its messages.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConversationWithMessages {
+    /// Unique conversation identifier.
+    pub id: String,
+    /// Phone number of the contact.
+    #[serde(alias = "phoneNumber")]
+    pub phone_number: String,
+    /// Conversation status.
+    pub status: ConversationStatus,
+    /// Number of unread messages.
+    #[serde(default, alias = "unreadCount")]
+    pub unread_count: i32,
+    /// Total number of messages.
+    #[serde(default, alias = "messageCount")]
+    pub message_count: i32,
+    /// Text of the last message.
+    #[serde(default, alias = "lastMessageText")]
+    pub last_message_text: Option<String>,
+    /// When the last message was sent/received.
+    #[serde(default, alias = "lastMessageAt")]
+    pub last_message_at: Option<String>,
+    /// Direction of the last message.
+    #[serde(default, alias = "lastMessageDirection")]
+    pub last_message_direction: Option<String>,
+    /// Custom metadata.
+    #[serde(default)]
+    pub metadata: std::collections::HashMap<String, serde_json::Value>,
+    /// Conversation tags.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Associated contact ID.
+    #[serde(default, alias = "contactId")]
+    pub contact_id: Option<String>,
+    /// When the conversation was created.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    /// When the conversation was last updated.
+    #[serde(default, alias = "updatedAt")]
+    pub updated_at: Option<String>,
+    /// Conversation messages (when include_messages=true).
+    #[serde(default)]
+    pub messages: Option<ConversationMessages>,
+}
+
+/// Options for listing conversations.
+#[derive(Debug, Clone, Default)]
+pub struct ListConversationsOptions {
+    /// Maximum number of conversations to return.
+    pub limit: Option<i32>,
+    /// Number of conversations to skip.
+    pub offset: Option<i32>,
+    /// Filter by conversation status.
+    pub status: Option<ConversationStatus>,
+}
+
+impl ListConversationsOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn limit(mut self, limit: i32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn offset(mut self, offset: i32) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
+    pub fn status(mut self, status: ConversationStatus) -> Self {
+        self.status = Some(status);
+        self
+    }
+
+    pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(limit) = self.limit {
+            params.push(("limit".to_string(), limit.to_string()));
+        }
+        if let Some(offset) = self.offset {
+            params.push(("offset".to_string(), offset.to_string()));
+        }
+        if let Some(ref status) = self.status {
+            params.push(("status".to_string(), status.to_string()));
+        }
+        params
+    }
+}
+
+/// Options for getting a single conversation.
+#[derive(Debug, Clone, Default)]
+pub struct GetConversationOptions {
+    /// Include messages in the response.
+    pub include_messages: Option<bool>,
+    /// Maximum number of messages to return.
+    pub message_limit: Option<i32>,
+    /// Number of messages to skip.
+    pub message_offset: Option<i32>,
+}
+
+impl GetConversationOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn include_messages(mut self, include: bool) -> Self {
+        self.include_messages = Some(include);
+        self
+    }
+
+    pub fn message_limit(mut self, limit: i32) -> Self {
+        self.message_limit = Some(limit);
+        self
+    }
+
+    pub fn message_offset(mut self, offset: i32) -> Self {
+        self.message_offset = Some(offset);
+        self
+    }
+
+    pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(true) = self.include_messages {
+            params.push(("include_messages".to_string(), "true".to_string()));
+        }
+        if let Some(limit) = self.message_limit {
+            params.push(("message_limit".to_string(), limit.to_string()));
+        }
+        if let Some(offset) = self.message_offset {
+            params.push(("message_offset".to_string(), offset.to_string()));
+        }
+        params
+    }
+}
+
+/// Request to update a conversation.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct UpdateConversationRequest {
+    /// New metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// New tags.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+}
+
+/// Request to reply to a conversation.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReplyToConversationRequest {
+    /// Message content.
+    pub text: String,
+    /// Message type for compliance.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "messageType")]
+    pub message_type: Option<String>,
+    /// Custom JSON metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Media URLs to attach.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mediaUrls")]
+    pub media_urls: Option<Vec<String>>,
 }
