@@ -123,6 +123,9 @@ pub struct Message {
     /// Custom metadata attached to the message.
     #[serde(default)]
     pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// AI classification metadata for inbound messages.
+    #[serde(default, rename = "aiMetadata")]
+    pub ai_metadata: Option<AiMetadata>,
 }
 
 fn default_segments() -> i32 {
@@ -144,6 +147,26 @@ impl Message {
     pub fn is_pending(&self) -> bool {
         matches!(self.status, MessageStatus::Queued | MessageStatus::Sent)
     }
+}
+
+/// AI classification metadata for an inbound message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiMetadata {
+    /// Classified intent of the message.
+    pub intent: String,
+    /// Confidence score for the intent (0-1).
+    #[serde(rename = "intentConfidence")]
+    pub intent_confidence: f64,
+    /// Classified sentiment of the message.
+    pub sentiment: String,
+    /// Confidence score for the sentiment (0-1).
+    #[serde(rename = "sentimentConfidence")]
+    pub sentiment_confidence: f64,
+    /// ISO 8601 timestamp of when classification occurred.
+    #[serde(rename = "classifiedAt")]
+    pub classified_at: String,
+    /// AI model used for classification.
+    pub model: String,
 }
 
 /// Message type for compliance handling.
