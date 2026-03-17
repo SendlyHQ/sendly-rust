@@ -5,8 +5,10 @@ use crate::account_resource::AccountResource;
 use crate::campaigns::CampaignsResource;
 use crate::contacts::ContactsResource;
 use crate::conversations::ConversationsResource;
+use crate::drafts::DraftsResource;
 use crate::enterprise::EnterpriseResource;
 use crate::error::{ApiErrorResponse, Error, Result};
+use crate::labels::LabelsResource;
 use crate::media::Media;
 use crate::messages::Messages;
 use crate::templates::TemplatesResource;
@@ -175,6 +177,16 @@ impl Sendly {
     /// Returns the Conversations resource.
     pub fn conversations(&self) -> ConversationsResource {
         ConversationsResource::new(self)
+    }
+
+    /// Returns the Labels resource.
+    pub fn labels(&self) -> LabelsResource {
+        LabelsResource::new(self)
+    }
+
+    /// Returns the Drafts resource.
+    pub fn drafts(&self) -> DraftsResource {
+        DraftsResource::new(self)
     }
 
     /// Returns the Media resource.

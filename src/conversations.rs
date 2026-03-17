@@ -1,8 +1,9 @@
 use crate::client::Sendly;
 use crate::error::{Error, Result};
 use crate::models::{
-    Conversation, ConversationListResponse, ConversationWithMessages, GetConversationOptions,
-    ListConversationsOptions, Message, ReplyToConversationRequest, UpdateConversationRequest,
+    AddLabelsRequest, Conversation, ConversationListResponse, ConversationWithMessages,
+    GetConversationOptions, ListConversationsOptions, Message, ReplyToConversationRequest,
+    UpdateConversationRequest,
 };
 
 /// Conversations resource for managing SMS conversation threads.
@@ -284,6 +285,60 @@ impl<'a> ConversationsResource<'a> {
         let encoded_id = urlencoding::encode(id);
         let path = format!("/conversations/{}/mark-read", encoded_id);
         let response = self.client.post(&path, &()).await?;
+        let result: Conversation = response.json().await?;
+
+        Ok(result)
+    }
+
+    /// Adds labels to a conversation.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Conversation ID
+    /// * `label_ids` - Label IDs to add
+    pub async fn add_labels(&self, id: &str, label_ids: Vec<String>) -> Result<Conversation> {
+        if id.is_empty() {
+            return Err(Error::Validation {
+                message: "Conversation ID is required".to_string(),
+            });
+        }
+        if label_ids.is_empty() {
+            return Err(Error::Validation {
+                message: "At least one label ID is required".to_string(),
+            });
+        }
+
+        let encoded_id = urlencoding::encode(id);
+        let path = format!("/conversations/{}/labels", encoded_id);
+        let body = AddLabelsRequest { label_ids };
+        let response = self.client.post(&path, &body).await?;
+        let result: Conversation = response.json().await?;
+
+        Ok(result)
+    }
+
+    /// Removes a label from a conversation.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Conversation ID
+    /// * `label_id` - Label ID to remove
+    pub async fn remove_label(&self, id: &str, label_id: &str) -> Result<Conversation> {
+        if id.is_empty() {
+            return Err(Error::Validation {
+                message: "Conversation ID is required".to_string(),
+            });
+        }
+        if label_id.is_empty() {
+            return Err(Error::Validation {
+                message: "Label ID is required".to_string(),
+            });
+        }
+
+        let encoded_id = urlencoding::encode(id);
+        let encoded_label_id = urlencoding::encode(label_id);
+        let path = format!("/conversations/{}/labels/{}", encoded_id, encoded_label_id);
+        let response = self.client.delete(&path).await?;
         let result: Conversation = response.json().await?;
 
         Ok(result)

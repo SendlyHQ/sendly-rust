@@ -2664,3 +2664,264 @@ pub struct ReplyToConversationRequest {
     #[serde(skip_serializing_if = "Option::is_none", rename = "mediaUrls")]
     pub media_urls: Option<Vec<String>>,
 }
+
+/// Request to add labels to a conversation.
+#[derive(Debug, Clone, Serialize)]
+pub struct AddLabelsRequest {
+    /// Label IDs to add.
+    #[serde(rename = "labelIds")]
+    pub label_ids: Vec<String>,
+}
+
+// ============================================================================
+// Labels
+// ============================================================================
+
+/// A conversation label.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Label {
+    /// Unique label identifier.
+    pub id: String,
+    /// Label name.
+    pub name: String,
+    /// Label color.
+    pub color: String,
+    /// Label description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// When the label was created.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+}
+
+/// Response from listing labels.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LabelListResponse {
+    /// List of labels.
+    #[serde(default)]
+    pub data: Vec<Label>,
+}
+
+/// Request to create a label.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateLabelRequest {
+    /// Label name.
+    pub name: String,
+    /// Label color.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// Label description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl CreateLabelRequest {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            color: None,
+            description: None,
+        }
+    }
+
+    pub fn color(mut self, color: impl Into<String>) -> Self {
+        self.color = Some(color.into());
+        self
+    }
+
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+}
+
+// ============================================================================
+// Drafts
+// ============================================================================
+
+/// Draft status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DraftStatus {
+    /// Draft is awaiting review.
+    Pending,
+    /// Draft has been approved.
+    Approved,
+    /// Draft has been rejected.
+    Rejected,
+    /// Draft has been sent.
+    Sent,
+    /// Draft failed to send.
+    Failed,
+}
+
+impl std::fmt::Display for DraftStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DraftStatus::Pending => write!(f, "pending"),
+            DraftStatus::Approved => write!(f, "approved"),
+            DraftStatus::Rejected => write!(f, "rejected"),
+            DraftStatus::Sent => write!(f, "sent"),
+            DraftStatus::Failed => write!(f, "failed"),
+        }
+    }
+}
+
+/// A message draft.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageDraft {
+    /// Unique draft identifier.
+    pub id: String,
+    /// Associated conversation ID.
+    #[serde(alias = "conversationId")]
+    pub conversation_id: String,
+    /// Draft message content.
+    pub text: String,
+    /// Media URLs.
+    #[serde(default, alias = "mediaUrls")]
+    pub media_urls: Option<Vec<String>>,
+    /// Custom metadata.
+    #[serde(default)]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Draft status.
+    pub status: DraftStatus,
+    /// Origin of the draft.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// User who created the draft.
+    #[serde(default, alias = "createdBy")]
+    pub created_by: Option<String>,
+    /// User who reviewed the draft.
+    #[serde(default, alias = "reviewedBy")]
+    pub reviewed_by: Option<String>,
+    /// When the draft was reviewed.
+    #[serde(default, alias = "reviewedAt")]
+    pub reviewed_at: Option<String>,
+    /// Reason for rejection.
+    #[serde(default, alias = "rejectionReason")]
+    pub rejection_reason: Option<String>,
+    /// ID of the sent message (if sent).
+    #[serde(default, alias = "messageId")]
+    pub message_id: Option<String>,
+    /// When the draft was created.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    /// When the draft was last updated.
+    #[serde(default, alias = "updatedAt")]
+    pub updated_at: Option<String>,
+}
+
+/// Pagination info for draft lists.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DraftPagination {
+    /// Total number of drafts.
+    #[serde(default)]
+    pub total: i64,
+}
+
+/// Response from listing drafts.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DraftListResponse {
+    /// List of drafts.
+    #[serde(default)]
+    pub data: Vec<MessageDraft>,
+    /// Pagination info.
+    pub pagination: DraftPagination,
+}
+
+/// Request to create a draft.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateDraftRequest {
+    /// Associated conversation ID.
+    #[serde(rename = "conversationId")]
+    pub conversation_id: String,
+    /// Draft message content.
+    pub text: String,
+    /// Media URLs.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mediaUrls")]
+    pub media_urls: Option<Vec<String>>,
+    /// Custom metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Origin of the draft.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+/// Request to update a draft.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct UpdateDraftRequest {
+    /// Updated draft message content.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Updated media URLs.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mediaUrls")]
+    pub media_urls: Option<Vec<String>>,
+    /// Updated custom metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+/// Request to reject a draft.
+#[derive(Debug, Clone, Serialize)]
+pub struct RejectDraftRequest {
+    /// Rejection reason.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Options for listing drafts.
+#[derive(Debug, Clone, Default)]
+pub struct ListDraftsOptions {
+    /// Filter by conversation ID.
+    pub conversation_id: Option<String>,
+    /// Filter by draft status.
+    pub status: Option<DraftStatus>,
+    /// Maximum number of drafts to return.
+    pub limit: Option<i32>,
+    /// Number of drafts to skip.
+    pub offset: Option<i32>,
+}
+
+impl ListDraftsOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn conversation_id(mut self, id: impl Into<String>) -> Self {
+        self.conversation_id = Some(id.into());
+        self
+    }
+
+    pub fn status(mut self, status: DraftStatus) -> Self {
+        self.status = Some(status);
+        self
+    }
+
+    pub fn limit(mut self, limit: i32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn offset(mut self, offset: i32) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
+    pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(ref id) = self.conversation_id {
+            params.push(("conversation_id".to_string(), id.clone()));
+        }
+        if let Some(ref status) = self.status {
+            params.push(("status".to_string(), status.to_string()));
+        }
+        if let Some(limit) = self.limit {
+            params.push(("limit".to_string(), limit.to_string()));
+        }
+        if let Some(offset) = self.offset {
+            params.push(("offset".to_string(), offset.to_string()));
+        }
+        params
+    }
+}
