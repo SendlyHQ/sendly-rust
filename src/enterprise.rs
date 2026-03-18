@@ -7,16 +7,16 @@ use crate::models::{
     CreateWorkspaceKeyRequest, CreateWorkspaceRequest, CreditsAnalytics, DeleteOptInPageResponse,
     DeleteWorkspaceResponse, DeliveryByWorkspace, DepositCreditsRequest, EnterpriseAccount,
     EnterpriseWebhook, EnterpriseWebhookTestResult, EnterpriseWorkspace,
-    EnterpriseWorkspaceDetail, InheritVerificationRequest, InheritVerificationResponse, Invitation,
-    MessagesAnalytics, OptInPage, PoolCredits, ProvisionWorkspaceRequest,
-    ProvisionWorkspaceResponse, QuotaSettings, ResumeWorkspaceResponse, RevokeKeyResponse,
-    SendInvitationRequest, SetCustomDomainRequest, SetCustomDomainResponse,
-    SetEnterpriseWebhookRequest, SetWorkspaceWebhookRequest, SetWorkspaceWebhookResponse,
-    SubmitVerificationRequest, SubmitVerificationResponse, SuspendWorkspaceRequest,
-    SuspendWorkspaceResponse, UpdateAutoTopUpRequest, UpdateOptInPageRequest, UpdateQuotaRequest,
-    WorkspaceCredits, WorkspaceKey, WorkspaceKeyResponse, WorkspaceTransferCreditsRequest,
-    WorkspaceTransferCreditsResponse, WorkspaceVerificationStatus, WorkspaceWebhookConfig,
-    WorkspaceWebhookTestResult,
+    EnterpriseWorkspaceDetail, GenerateBusinessPageRequest, GenerateBusinessPageResponse,
+    InheritVerificationRequest, InheritVerificationResponse, Invitation, MessagesAnalytics,
+    OptInPage, PoolCredits, ProvisionWorkspaceRequest, ProvisionWorkspaceResponse, QuotaSettings,
+    ResumeWorkspaceResponse, RevokeKeyResponse, SendInvitationRequest, SetCustomDomainRequest,
+    SetCustomDomainResponse, SetEnterpriseWebhookRequest, SetWorkspaceWebhookRequest,
+    SetWorkspaceWebhookResponse, SubmitVerificationRequest, SubmitVerificationResponse,
+    SuspendWorkspaceRequest, SuspendWorkspaceResponse, UpdateAutoTopUpRequest,
+    UpdateOptInPageRequest, UpdateQuotaRequest, WorkspaceCredits, WorkspaceKey,
+    WorkspaceKeyResponse, WorkspaceTransferCreditsRequest, WorkspaceTransferCreditsResponse,
+    WorkspaceVerificationStatus, WorkspaceWebhookConfig, WorkspaceWebhookTestResult,
 };
 
 pub struct WorkspacesResource<'a> {
@@ -552,6 +552,17 @@ impl<'a> EnterpriseResource<'a> {
         let response = self
             .client
             .post("/enterprise/workspaces/provision", &request)
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    pub async fn generate_business_page(
+        &self,
+        request: GenerateBusinessPageRequest,
+    ) -> Result<GenerateBusinessPageResponse> {
+        let response = self
+            .client
+            .post("/verification/business-page/generate", &request)
             .await?;
         Ok(response.json().await?)
     }

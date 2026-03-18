@@ -1782,6 +1782,76 @@ pub struct ProvisionWorkspaceResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct GenerateBusinessPageRequest {
+    #[serde(rename = "businessName")]
+    pub business_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "useCase")]
+    pub use_case: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "useCaseSummary")]
+    pub use_case_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "contactEmail")]
+    pub contact_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "contactPhone")]
+    pub contact_phone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "businessAddress")]
+    pub business_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "socialUrl")]
+    pub social_url: Option<String>,
+}
+
+impl GenerateBusinessPageRequest {
+    pub fn new(business_name: impl Into<String>) -> Self {
+        Self {
+            business_name: business_name.into(),
+            use_case: None,
+            use_case_summary: None,
+            contact_email: None,
+            contact_phone: None,
+            business_address: None,
+            social_url: None,
+        }
+    }
+
+    pub fn use_case(mut self, use_case: impl Into<String>) -> Self {
+        self.use_case = Some(use_case.into());
+        self
+    }
+
+    pub fn use_case_summary(mut self, summary: impl Into<String>) -> Self {
+        self.use_case_summary = Some(summary.into());
+        self
+    }
+
+    pub fn contact_email(mut self, email: impl Into<String>) -> Self {
+        self.contact_email = Some(email.into());
+        self
+    }
+
+    pub fn contact_phone(mut self, phone: impl Into<String>) -> Self {
+        self.contact_phone = Some(phone.into());
+        self
+    }
+
+    pub fn business_address(mut self, address: impl Into<String>) -> Self {
+        self.business_address = Some(address.into());
+        self
+    }
+
+    pub fn social_url(mut self, url: impl Into<String>) -> Self {
+        self.social_url = Some(url.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GenerateBusinessPageResponse {
+    pub slug: String,
+    pub url: String,
+    #[serde(alias = "pageId")]
+    pub page_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct SetEnterpriseWebhookRequest {
     pub url: String,
 }
