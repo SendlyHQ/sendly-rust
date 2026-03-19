@@ -562,7 +562,7 @@ impl<'a> EnterpriseResource<'a> {
     ) -> Result<GenerateBusinessPageResponse> {
         let response = self
             .client
-            .post("/verification/business-page/generate", &request)
+            .post("/enterprise/business-page/generate", &request)
             .await?;
         Ok(response.json().await?)
     }
