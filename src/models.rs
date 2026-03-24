@@ -1851,6 +1851,12 @@ pub struct GenerateBusinessPageResponse {
     pub page_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct VerificationDocumentUploadResponse {
+    pub url: String,
+    pub id: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SetEnterpriseWebhookRequest {
     pub url: String,

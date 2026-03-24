@@ -1,5 +1,6 @@
 use crate::client::Sendly;
 use crate::error::Result;
+use reqwest::multipart;
 use crate::models::{
     AnalyticsOverview, AnalyticsPeriod, AutoTopUpSettings, BillingBreakdown,
     BillingBreakdownOptions, BulkProvisionRequest, BulkProvisionResult, BulkProvisionWorkspace,
@@ -14,9 +15,10 @@ use crate::models::{
     SetCustomDomainResponse, SetEnterpriseWebhookRequest, SetWorkspaceWebhookRequest,
     SetWorkspaceWebhookResponse, SubmitVerificationRequest, SubmitVerificationResponse,
     SuspendWorkspaceRequest, SuspendWorkspaceResponse, UpdateAutoTopUpRequest,
-    UpdateOptInPageRequest, UpdateQuotaRequest, WorkspaceCredits, WorkspaceKey,
-    WorkspaceKeyResponse, WorkspaceTransferCreditsRequest, WorkspaceTransferCreditsResponse,
-    WorkspaceVerificationStatus, WorkspaceWebhookConfig, WorkspaceWebhookTestResult,
+    UpdateOptInPageRequest, UpdateQuotaRequest, VerificationDocumentUploadResponse,
+    WorkspaceCredits, WorkspaceKey, WorkspaceKeyResponse, WorkspaceTransferCreditsRequest,
+    WorkspaceTransferCreditsResponse, WorkspaceVerificationStatus, WorkspaceWebhookConfig,
+    WorkspaceWebhookTestResult,
 };
 
 pub struct WorkspacesResource<'a> {
@@ -563,6 +565,46 @@ impl<'a> EnterpriseResource<'a> {
         let response = self
             .client
             .post("/enterprise/business-page/generate", &request)
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    pub async fn upload_verification_document(
+        &self,
+        file_bytes: Vec<u8>,
+        filename: impl Into<String>,
+        workspace_id: Option<&str>,
+        verification_id: Option<&str>,
+    ) -> Result<VerificationDocumentUploadResponse> {
+        let filename = filename.into();
+        let mime = match filename.rsplit('.').next().unwrap_or("").to_lowercase().as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            "gif" => "image/gif",
+            "pdf" => "application/pdf",
+            "webp" => "image/webp",
+            _ => "application/octet-stream",
+        };
+
+        let file_part = multipart::Part::bytes(file_bytes)
+            .file_name(filename)
+            .mime_str(mime)
+            .map_err(|e| crate::error::Error::Network {
+                message: format!("invalid mime type: {}", e),
+            })?;
+
+        let mut form = multipart::Form::new().part("file", file_part);
+
+        if let Some(ws_id) = workspace_id {
+            form = form.text("workspaceId", ws_id.to_string());
+        }
+        if let Some(v_id) = verification_id {
+            form = form.text("verificationId", v_id.to_string());
+        }
+
+        let response = self
+            .client
+            .post_multipart("/enterprise/verification-document/upload", form)
             .await?;
         Ok(response.json().await?)
     }
