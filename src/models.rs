@@ -2812,6 +2812,105 @@ impl CreateLabelRequest {
 }
 
 // ============================================================================
+// Conversation Context
+// ============================================================================
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConversationContextResponse {
+    pub context: String,
+    pub conversation: ConversationContextInfo,
+    #[serde(default, alias = "tokenEstimate")]
+    pub token_estimate: i64,
+    #[serde(default)]
+    pub business: Option<ConversationContextBusiness>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConversationContextInfo {
+    pub id: String,
+    #[serde(alias = "phoneNumber")]
+    pub phone_number: String,
+    pub status: String,
+    #[serde(default, alias = "messageCount")]
+    pub message_count: i32,
+    #[serde(default, alias = "unreadCount")]
+    pub unread_count: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConversationContextBusiness {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default, alias = "useCase")]
+    pub use_case: Option<String>,
+}
+
+// ============================================================================
+// Rules
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rule {
+    pub id: String,
+    pub name: String,
+    pub conditions: Vec<std::collections::HashMap<String, serde_json::Value>>,
+    pub actions: Vec<std::collections::HashMap<String, serde_json::Value>>,
+    #[serde(default)]
+    pub priority: i32,
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    #[serde(default, alias = "updatedAt")]
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RuleListResponse {
+    #[serde(default)]
+    pub data: Vec<Rule>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateRuleRequest {
+    pub name: String,
+    pub conditions: Vec<std::collections::HashMap<String, serde_json::Value>>,
+    pub actions: Vec<std::collections::HashMap<String, serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct UpdateRuleRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conditions: Option<Vec<std::collections::HashMap<String, serde_json::Value>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actions: Option<Vec<std::collections::HashMap<String, serde_json::Value>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+}
+
+// ============================================================================
+// Generated Template
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GenerateTemplateRequest {
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GeneratedTemplate {
+    pub name: String,
+    pub text: String,
+    #[serde(default)]
+    pub variables: Vec<String>,
+    pub category: String,
+}
+
+// ============================================================================
 // Drafts
 // ============================================================================
 

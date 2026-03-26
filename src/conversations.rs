@@ -1,9 +1,9 @@
 use crate::client::Sendly;
 use crate::error::{Error, Result};
 use crate::models::{
-    AddLabelsRequest, Conversation, ConversationListResponse, ConversationWithMessages,
-    GetConversationOptions, ListConversationsOptions, Message, ReplyToConversationRequest,
-    UpdateConversationRequest,
+    AddLabelsRequest, Conversation, ConversationContextResponse, ConversationListResponse,
+    ConversationWithMessages, GetConversationOptions, ListConversationsOptions, Message,
+    ReplyToConversationRequest, UpdateConversationRequest,
 };
 
 /// Conversations resource for managing SMS conversation threads.
@@ -340,6 +340,37 @@ impl<'a> ConversationsResource<'a> {
         let path = format!("/conversations/{}/labels/{}", encoded_id, encoded_label_id);
         let response = self.client.delete(&path).await?;
         let result: Conversation = response.json().await?;
+
+        Ok(result)
+    }
+
+    /// Gets conversation context for AI/LLM consumption.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Conversation ID
+    /// * `max_messages` - Optional maximum number of messages to include
+    pub async fn get_context(
+        &self,
+        id: &str,
+        max_messages: Option<i32>,
+    ) -> Result<ConversationContextResponse> {
+        if id.is_empty() {
+            return Err(Error::Validation {
+                message: "Conversation ID is required".to_string(),
+            });
+        }
+
+        let encoded_id = urlencoding::encode(id);
+        let path = format!("/conversations/{}/context", encoded_id);
+
+        let mut query = Vec::new();
+        if let Some(max) = max_messages {
+            query.push(("max_messages".to_string(), max.to_string()));
+        }
+
+        let response = self.client.get(&path, &query).await?;
+        let result: ConversationContextResponse = response.json().await?;
 
         Ok(result)
     }

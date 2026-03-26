@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::client::Sendly;
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -262,6 +262,20 @@ impl<'a> TemplatesResource<'a> {
             .client
             .post(&format!("/templates/{}/clone", id), &request)
             .await?;
+        Ok(response.json().await?)
+    }
+
+    pub async fn generate(
+        &self,
+        request: crate::models::GenerateTemplateRequest,
+    ) -> Result<crate::models::GeneratedTemplate> {
+        if request.description.is_empty() {
+            return Err(Error::Validation {
+                message: "Description is required".to_string(),
+            });
+        }
+
+        let response = self.client.post("/templates/generate", &request).await?;
         Ok(response.json().await?)
     }
 }

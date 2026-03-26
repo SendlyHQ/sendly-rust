@@ -10,6 +10,7 @@ use crate::enterprise::EnterpriseResource;
 use crate::error::{ApiErrorResponse, Error, Result};
 use crate::labels::LabelsResource;
 use crate::media::Media;
+use crate::rules::RulesResource;
 use crate::messages::Messages;
 use crate::templates::TemplatesResource;
 use crate::verify::VerifyResource;
@@ -182,6 +183,11 @@ impl Sendly {
     /// Returns the Labels resource.
     pub fn labels(&self) -> LabelsResource {
         LabelsResource::new(self)
+    }
+
+    /// Returns the Rules resource.
+    pub fn rules(&self) -> RulesResource {
+        RulesResource::new(self)
     }
 
     /// Returns the Drafts resource.
