@@ -141,6 +141,9 @@ pub struct WebhookMessageData {
     pub retry_count: Option<i32>,
     #[serde(default)]
     pub metadata: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Batch ID if message was sent as part of a batch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_id: Option<String>,
 }
 
 impl WebhookMessageData {

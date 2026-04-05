@@ -588,16 +588,21 @@ pub struct SendBatchRequest {
 /// Result of a single message in a batch.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BatchMessageResult {
+    /// The message ID.
+    pub id: String,
     /// Recipient phone number.
     pub to: String,
-    /// Message ID if successful.
-    #[serde(default, alias = "messageId")]
-    pub message_id: Option<String>,
     /// Message status.
     pub status: String,
     /// Error message if failed.
     #[serde(default)]
     pub error: Option<String>,
+    /// When the message was created.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    /// When the message was delivered.
+    #[serde(default, alias = "deliveredAt")]
+    pub delivered_at: Option<String>,
 }
 
 /// Response from sending batch messages.
