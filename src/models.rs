@@ -588,8 +588,9 @@ pub struct SendBatchRequest {
 /// Result of a single message in a batch.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BatchMessageResult {
-    /// The message ID.
-    pub id: String,
+    /// The message ID (absent for failed messages).
+    #[serde(default)]
+    pub id: Option<String>,
     /// Recipient phone number.
     pub to: String,
     /// Message status.
