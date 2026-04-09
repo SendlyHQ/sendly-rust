@@ -27,24 +27,10 @@ impl std::fmt::Display for VerificationStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DeliveryStatus {
-    Pending,
+    Queued,
     Sent,
     Delivered,
     Failed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Channel {
-    Sms,
-    Whatsapp,
-    Email,
-}
-
-impl Default for Channel {
-    fn default() -> Self {
-        Channel::Sms
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,30 +38,23 @@ pub struct Verification {
     pub id: String,
     pub status: VerificationStatus,
     pub phone: String,
-    #[serde(alias = "deliveryStatus")]
     pub delivery_status: DeliveryStatus,
     #[serde(default)]
     pub attempts: i32,
-    #[serde(default = "default_max_attempts", alias = "maxAttempts")]
+    #[serde(default = "default_max_attempts")]
     pub max_attempts: i32,
-    #[serde(default)]
-    pub channel: Channel,
-    #[serde(alias = "expiresAt")]
     pub expires_at: String,
-    #[serde(default, alias = "verifiedAt")]
+    #[serde(default)]
     pub verified_at: Option<String>,
-    #[serde(alias = "createdAt")]
     pub created_at: String,
     #[serde(default)]
     pub sandbox: bool,
-    #[serde(default, alias = "appName")]
-    pub app_name: Option<String>,
-    #[serde(default, alias = "templateId")]
-    pub template_id: Option<String>,
-    #[serde(default, alias = "profileId")]
-    pub profile_id: Option<String>,
     #[serde(default)]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    pub app_name: Option<String>,
+    #[serde(default)]
+    pub template_id: Option<String>,
+    #[serde(default)]
+    pub profile_id: Option<String>,
 }
 
 fn default_max_attempts() -> i32 {
@@ -98,56 +77,38 @@ impl Verification {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SendVerificationRequest {
-    #[serde(rename = "to")]
-    pub phone: String,
+    pub to: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub channel: Option<Channel>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "codeLength")]
-    pub code_length: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "expiresIn")]
-    pub expires_in: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "maxAttempts")]
-    pub max_attempts: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "templateId")]
     pub template_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "profileId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub profile_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "appName")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub app_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub locale: Option<String>,
+    pub timeout_secs: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    pub code_length: Option<i32>,
 }
 
 impl SendVerificationRequest {
-    pub fn new(phone: impl Into<String>) -> Self {
+    pub fn new(to: impl Into<String>) -> Self {
         Self {
-            phone: phone.into(),
-            channel: None,
-            code_length: None,
-            expires_in: None,
-            max_attempts: None,
+            to: to.into(),
             template_id: None,
             profile_id: None,
             app_name: None,
-            locale: None,
-            metadata: None,
+            timeout_secs: None,
+            code_length: None,
         }
     }
 
-    pub fn channel(mut self, channel: Channel) -> Self {
-        self.channel = Some(channel);
+    pub fn template_id(mut self, id: impl Into<String>) -> Self {
+        self.template_id = Some(id.into());
         self
     }
 
-    pub fn code_length(mut self, len: i32) -> Self {
-        self.code_length = Some(len);
-        self
-    }
-
-    pub fn expires_in(mut self, secs: i32) -> Self {
-        self.expires_in = Some(secs);
+    pub fn profile_id(mut self, id: impl Into<String>) -> Self {
+        self.profile_id = Some(id.into());
         self
     }
 
@@ -156,17 +117,29 @@ impl SendVerificationRequest {
         self
     }
 
-    pub fn template_id(mut self, id: impl Into<String>) -> Self {
-        self.template_id = Some(id.into());
+    pub fn timeout_secs(mut self, secs: i32) -> Self {
+        self.timeout_secs = Some(secs);
+        self
+    }
+
+    pub fn code_length(mut self, len: i32) -> Self {
+        self.code_length = Some(len);
         self
     }
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendVerificationResponse {
-    pub verification: Verification,
+    pub id: String,
+    pub status: VerificationStatus,
+    pub phone: String,
+    pub expires_at: String,
     #[serde(default)]
-    pub code: Option<String>,
+    pub sandbox: bool,
+    #[serde(default)]
+    pub sandbox_code: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -176,17 +149,19 @@ pub struct CheckVerificationRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CheckVerificationResponse {
-    pub valid: bool,
+    pub id: String,
     pub status: VerificationStatus,
+    pub phone: String,
     #[serde(default)]
-    pub verification: Option<Verification>,
+    pub verified_at: Option<String>,
+    #[serde(default)]
+    pub remaining_attempts: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ListVerificationsOptions {
     pub limit: Option<u32>,
     pub status: Option<VerificationStatus>,
-    pub phone: Option<String>,
 }
 
 impl ListVerificationsOptions {
@@ -204,11 +179,6 @@ impl ListVerificationsOptions {
         self
     }
 
-    pub fn phone(mut self, phone: impl Into<String>) -> Self {
-        self.phone = Some(phone.into());
-        self
-    }
-
     pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
         let mut params = Vec::new();
         if let Some(limit) = self.limit {
@@ -216,9 +186,6 @@ impl ListVerificationsOptions {
         }
         if let Some(ref status) = self.status {
             params.push(("status".to_string(), status.to_string()));
-        }
-        if let Some(ref phone) = self.phone {
-            params.push(("phone".to_string(), phone.clone()));
         }
         params
     }
@@ -235,7 +202,7 @@ pub struct VerificationList {
 pub struct Pagination {
     #[serde(default)]
     pub limit: i32,
-    #[serde(default, alias = "hasMore")]
+    #[serde(default)]
     pub has_more: bool,
 }
 
