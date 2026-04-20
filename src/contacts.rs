@@ -15,10 +15,43 @@ pub struct Contact {
     pub email: Option<String>,
     #[serde(default)]
     pub metadata: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default, alias = "optedOut")]
+    pub opted_out: Option<bool>,
+    /// Carrier-reported line type: `mobile`, `voip`, `toll free`, `fixed line`,
+    /// `fixed line or mobile`, `pager`, `voicemail`, `shared cost`, etc.
+    /// Populated after a carrier lookup.
+    #[serde(default, alias = "lineType")]
+    pub line_type: Option<String>,
+    #[serde(default, alias = "carrierName")]
+    pub carrier_name: Option<String>,
+    #[serde(default, alias = "lineTypeCheckedAt")]
+    pub line_type_checked_at: Option<String>,
+    /// Auto-exclusion reason: `landline`, `invalid_number`, `non_sms_capable`.
+    /// Clear with `contacts.mark_valid()`.
+    #[serde(default, alias = "invalidReason")]
+    pub invalid_reason: Option<String>,
+    #[serde(default, alias = "invalidatedAt")]
+    pub invalidated_at: Option<String>,
     #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
     #[serde(default, alias = "updatedAt")]
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct CheckNumbersRequest {
+    #[serde(rename = "listId", skip_serializing_if = "Option::is_none")]
+    pub list_id: Option<String>,
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckNumbersResponse {
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -334,6 +367,31 @@ impl<'a> ContactsResource<'a> {
     pub async fn delete(&self, id: &str) -> Result<()> {
         self.client.delete(&format!("/contacts/{}", id)).await?;
         Ok(())
+    }
+
+    /// Clear the invalid flag on a contact so future campaigns include it again.
+    ///
+    /// Contacts get auto-flagged when a send fails with a terminal bad-number
+    /// error (landline, invalid number) or when a carrier lookup reports they
+    /// can't receive SMS.
+    pub async fn mark_valid(&self, id: &str) -> Result<Contact> {
+        let response = self
+            .client
+            .post(&format!("/contacts/{}/mark-valid", id), &serde_json::json!({}))
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    /// Trigger a background carrier lookup across your contacts. Landlines
+    /// and other non-SMS-capable numbers are auto-excluded from future
+    /// campaigns. Idempotent: re-triggering while a lookup is running for the
+    /// same scope is a no-op.
+    pub async fn check_numbers(
+        &self,
+        request: CheckNumbersRequest,
+    ) -> Result<CheckNumbersResponse> {
+        let response = self.client.post("/contacts/lookup", &request).await?;
+        Ok(response.json().await?)
     }
 
     pub async fn import(&self, request: ImportContactsRequest) -> Result<ImportContactsResponse> {
