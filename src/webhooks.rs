@@ -74,6 +74,28 @@ pub enum WebhookEventType {
     VerificationResent,
     #[serde(rename = "verification.delivery_failed")]
     VerificationDeliveryFailed,
+    #[serde(rename = "contact.auto_flagged")]
+    ContactAutoFlagged,
+    #[serde(rename = "contact.marked_valid")]
+    ContactMarkedValid,
+    #[serde(rename = "contacts.lookup_completed")]
+    ContactsLookupCompleted,
+    #[serde(rename = "contacts.bulk_marked_valid")]
+    ContactsBulkMarkedValid,
+}
+
+/// Source of a list-health event. Frozen enum — new values will be
+/// added in minor SDK versions, never removed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ListHealthEventSource {
+    #[serde(rename = "send_failure")]
+    SendFailure,
+    #[serde(rename = "carrier_lookup")]
+    CarrierLookup,
+    #[serde(rename = "user_action")]
+    UserAction,
+    #[serde(rename = "bulk_mark_valid")]
+    BulkMarkValid,
 }
 
 /// Message status in webhook events

@@ -32,6 +32,12 @@ pub struct Contact {
     pub invalid_reason: Option<String>,
     #[serde(default, alias = "invalidatedAt")]
     pub invalidated_at: Option<String>,
+    /// When a user manually cleared an auto-flag on this contact. Carrier
+    /// re-checks that would re-flag the contact as invalid respect this
+    /// timestamp and leave the contact clean, so your manual decisions
+    /// survive future lookups.
+    #[serde(default, alias = "userMarkedValidAt")]
+    pub user_marked_valid_at: Option<String>,
     #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
     #[serde(default, alias = "updatedAt")]
@@ -50,8 +56,51 @@ pub struct CheckNumbersRequest {
 pub struct CheckNumbersResponse {
     #[serde(default)]
     pub success: bool,
+    /// True if a carrier lookup for this scope was already running when you
+    /// called this. Treat it as a soft no-op and wait for the
+    /// `contacts.lookup_completed` webhook.
+    #[serde(default, alias = "already_running")]
+    pub already_running: bool,
     #[serde(default)]
     pub message: Option<String>,
+}
+
+/// Request body for `contacts.bulk_mark_valid`. Pass either an explicit id
+/// array (up to 10,000 per call) OR a `list_id`, not both. Foreign ids
+/// silently no-op via the per-organization filter.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct BulkMarkValidRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ids: Option<Vec<String>>,
+    #[serde(rename = "listId", skip_serializing_if = "Option::is_none")]
+    pub list_id: Option<String>,
+}
+
+impl BulkMarkValidRequest {
+    /// Clear this explicit set of contact ids (up to 10,000).
+    pub fn of_ids(ids: Vec<String>) -> Self {
+        Self {
+            ids: Some(ids),
+            list_id: None,
+        }
+    }
+
+    /// Clear every flagged member of this list.
+    pub fn of_list_id(list_id: impl Into<String>) -> Self {
+        Self {
+            ids: None,
+            list_id: Some(list_id.into()),
+        }
+    }
+}
+
+/// Response from `contacts.bulk_mark_valid`. Reports how many contacts
+/// actually had their invalid flag cleared. Already-clean contacts and
+/// foreign ids don't count.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BulkMarkValidResponse {
+    #[serde(default)]
+    pub cleared: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -378,6 +427,42 @@ impl<'a> ContactsResource<'a> {
         let response = self
             .client
             .post(&format!("/contacts/{}/mark-valid", id), &serde_json::json!({}))
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    /// Clear the invalid flag on many contacts at once — the escape hatch for
+    /// when auto-flag misclassifies at scale. Pass either an explicit id array
+    /// (up to 10,000 per call) OR a `list_id`, not both. Foreign ids silently
+    /// no-op via the per-organization filter.
+    ///
+    /// Returns the number of contacts whose flag was actually cleared.
+    /// Already-clean contacts and foreign ids don't count.
+    pub async fn bulk_mark_valid(
+        &self,
+        request: BulkMarkValidRequest,
+    ) -> Result<BulkMarkValidResponse> {
+        let has_ids = request.ids.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+        let has_list_id = request
+            .list_id
+            .as_ref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+
+        if !has_ids && !has_list_id {
+            return Err(crate::error::Error::Validation {
+                message: "bulk_mark_valid requires either ids or list_id".to_string(),
+            });
+        }
+        if has_ids && has_list_id {
+            return Err(crate::error::Error::Validation {
+                message: "bulk_mark_valid accepts ids OR list_id, not both".to_string(),
+            });
+        }
+
+        let response = self
+            .client
+            .post("/contacts/bulk-mark-valid", &request)
             .await?;
         Ok(response.json().await?)
     }

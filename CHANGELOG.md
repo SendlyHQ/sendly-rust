@@ -1,5 +1,23 @@
 # sendly (Rust)
 
+## 3.29.0
+
+### Minor Changes
+
+- `contacts.bulk_mark_valid(BulkMarkValidRequest::of_ids(...))` / `BulkMarkValidRequest::of_list_id(...)`: clear the invalid flag on many contacts at once (up to 10,000 per call). Escape hatch for when auto-mark misclassifies at scale.
+- Four new list-health `WebhookEventType` variants: `ContactAutoFlagged`, `ContactMarkedValid`, `ContactsLookupCompleted`, `ContactsBulkMarkedValid`.
+- New `ListHealthEventSource` enum (frozen): `SendFailure | CarrierLookup | UserAction | BulkMarkValid` — the `source` field on auto-flag and mark-valid webhooks.
+- `Contact` gains `user_marked_valid_at` — when a user manually cleared an auto-flag. Carrier re-checks respect this timestamp and leave the contact clean.
+- `CheckNumbersResponse` gains `already_running` so the client knows when a rapid re-trigger was collapsed against an in-flight lookup.
+
+## 3.28.0
+
+### Minor Changes
+
+- `contacts.mark_valid(id)`: clear the auto-exclusion flag on a contact.
+- `contacts.check_numbers(CheckNumbersRequest { list_id, force })`: trigger a background carrier lookup.
+- `Contact` gains `opted_out`, `line_type`, `carrier_name`, `line_type_checked_at`, `invalid_reason`, `invalidated_at` (with snake_case and camelCase deserialize aliases).
+
 ## 3.18.1
 
 ### Patch Changes
