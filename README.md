@@ -22,7 +22,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sendly = "3.7.0"
+sendly = "3.29.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -406,7 +406,7 @@ message.is_pending()   // bool
 
 | Tier | Countries | Credits per SMS |
 |------|-----------|-----------------|
-| Domestic | US, CA | 1 |
+| Domestic | US, CA | 2 |
 | Tier 1 | GB, PL, IN, etc. | 8 |
 | Tier 2 | FR, JP, AU, etc. | 12 |
 | Tier 3 | DE, IT, MX, etc. | 16 |
