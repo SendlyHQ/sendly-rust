@@ -7,7 +7,38 @@ use crate::models::{
     WebhookCreatedResponse, WebhookDelivery, WebhookDeliveryList, WebhookSecretRotation,
     WebhookTestResult,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+/// Options for [`WebhooksResource::redeliver`]. Use
+/// `RedeliverOptions::default()` to accept server defaults (last 24h,
+/// statuses `["failed", "cancelled"]`, limit 1000).
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct RedeliverOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "event_types")]
+    pub event_types: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statuses: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// Options for [`WebhooksResource::backfill`]. Use
+/// `BackfillOptions::default()` to accept server defaults.
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct BackfillOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "event_types")]
+    pub event_types: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
 
 /// Webhooks resource for managing webhook endpoints.
 pub struct WebhooksResource<'a> {
@@ -219,6 +250,57 @@ impl<'a> WebhooksResource<'a> {
     pub async fn reset_circuit(&self, id: impl AsRef<str>) -> Result<serde_json::Value> {
         let path = format!("/webhooks/{}/reset-circuit", id.as_ref());
         let response = self.client.post(&path, &()).await?;
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    /// Replay failed or cancelled webhook deliveries from the audit log.
+    ///
+    /// Use after a customer endpoint has recovered from an outage to re-fire
+    /// deliveries we recorded but couldn't deliver. Each replay creates a
+    /// new delivery row preserving the original `event_id` so customers can
+    /// dedupe. Rejects with HTTP 409 if the circuit is currently open —
+    /// call [`reset_circuit`](Self::reset_circuit) first.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Webhook ID
+    /// * `options` - Window and filter options; `RedeliverOptions::default()`
+    ///   uses server defaults (last 24h, statuses `["failed", "cancelled"]`,
+    ///   limit 1000).
+    pub async fn redeliver(
+        &self,
+        id: impl AsRef<str>,
+        options: RedeliverOptions,
+    ) -> Result<serde_json::Value> {
+        let path = format!("/webhooks/{}/redeliver", id.as_ref());
+        let response = self.client.post(&path, &options).await?;
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    /// Backfill missed webhook events from the underlying message log.
+    ///
+    /// Use when a circuit-breaker outage left events with no audit row (the
+    /// case [`redeliver`](Self::redeliver) cannot recover). Synthesized
+    /// events have fresh IDs; clients should dedupe by
+    /// `event.data.object.id` (the message ID). Rejects with HTTP 409 if
+    /// the circuit is currently open — call
+    /// [`reset_circuit`](Self::reset_circuit) first.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Webhook ID
+    /// * `options` - Window and filter options; `BackfillOptions::default()`
+    ///   uses server defaults (last 24h, all subscribed message events,
+    ///   limit 1000).
+    pub async fn backfill(
+        &self,
+        id: impl AsRef<str>,
+        options: BackfillOptions,
+    ) -> Result<serde_json::Value> {
+        let path = format!("/webhooks/{}/backfill", id.as_ref());
+        let response = self.client.post(&path, &options).await?;
         let result: serde_json::Value = response.json().await?;
         Ok(result)
     }
