@@ -292,6 +292,39 @@ for event_type in &event_types {
 }
 ```
 
+### Recovering Missed Events
+
+After an outage (your endpoint was down, or our circuit breaker opened),
+two methods recover what was missed:
+
+```rust
+use sendly::{RedeliverOptions, BackfillOptions};
+
+// Redeliver: re-send failed deliveries already in the audit log.
+let redeliver = client.webhooks().redeliver("whk_xxx", RedeliverOptions {
+    since: Some("2026-05-01T00:00:00Z".to_string()),
+    until: Some("2026-05-01T18:00:00Z".to_string()),
+    event_types: Some(vec!["message.delivered".to_string(), "message.failed".to_string()]),
+    limit: Some(5000),
+    ..Default::default()
+}).await?;
+println!("Queued {} retries", redeliver["queued"]);
+
+// Backfill: synthesize deliveries for messages whose events never created
+// a delivery row in the first place (silent-drop case).
+let backfill = client.webhooks().backfill("whk_xxx", BackfillOptions {
+    since: Some("2026-05-01T00:00:00Z".to_string()),
+    event_types: Some(vec!["message.delivered".to_string(), "message.failed".to_string()]),
+    ..Default::default()
+}).await?;
+println!("Backfilled {} events", backfill["queued"]);
+```
+
+Use `redeliver` when deliveries exist but failed (5xx, timeout). Use
+`backfill` when deliveries are missing entirely (circuit was open during
+the outage). Both are idempotent — duplicate calls within the same window
+won't double-send.
+
 ## Account & Credits
 
 ```rust
