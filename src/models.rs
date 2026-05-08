@@ -1473,70 +1473,92 @@ pub struct DeleteWorkspaceResponse {
     pub deleted_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct SubmitVerificationRequest {
-    #[serde(rename = "businessName")]
-    pub business_name: String,
-    pub website: String,
-    pub address: VerificationAddress,
-    pub contact: VerificationContact,
-    #[serde(rename = "useCase")]
-    pub use_case: String,
-    #[serde(rename = "useCaseSummary")]
-    pub use_case_summary: String,
-    #[serde(rename = "sampleMessages")]
-    pub sample_messages: String,
-    #[serde(rename = "optInWorkflow")]
-    pub opt_in_workflow: String,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "doingBusinessAs")]
+/// Verification submit/resubmit payload. All fields optional for resubmits
+/// (server merges with existing record). For initial provision via
+/// `submit_verification` (no existing record), the server validator requires:
+/// `business_name`, `website`, `address`, `contact`, `use_case`,
+/// `use_case_summary`, `sample_messages`, `opt_in_workflow`.
+///
+/// For sole proprietors, leave `brn`, `brn_type`, `brn_country` as `None` —
+/// the server strips them before forwarding to the carrier.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerificationSubmitInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub business_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub doing_business_as: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub website: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<VerificationAddress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contact: Option<VerificationContact>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub brn: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "brnType")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub brn_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "brnCountry")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub brn_country: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "optInImageUrls")]
-    pub opt_in_image_urls: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "monthlyVolume")]
-    pub monthly_volume: Option<String>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "additionalInformation"
-    )]
-    pub additional_information: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "ageGatedContent")]
-    pub age_gated_content: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "isvReseller")]
-    pub isv_reseller: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "privacyUrl")]
-    pub privacy_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "termsUrl")]
-    pub terms_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "entityType")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub entity_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_case: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_case_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_messages: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opt_in_workflow: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opt_in_image_urls: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub monthly_volume: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_information: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age_gated_content: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isv_reseller: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub privacy_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terms_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// Backwards-compatible alias. New code should use `VerificationSubmitInput`.
+pub type SubmitVerificationRequest = VerificationSubmitInput;
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VerificationAddress {
-    pub street: String,
-    pub city: String,
-    pub state: String,
-    pub zip: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub country: Option<String>,
+    pub street: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address1: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VerificationContact {
-    #[serde(rename = "firstName")]
-    pub first_name: String,
-    #[serde(rename = "lastName")]
-    pub last_name: String,
-    pub email: String,
-    pub phone: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

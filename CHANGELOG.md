@@ -1,5 +1,21 @@
 # sendly (Rust)
 
+## 3.30.0
+
+### Minor Changes
+
+- `enterprise.workspaces().submit_verification(workspace_id, data)`: rewritten to match the actual API shape (camelCase top-level via `serde(rename_all = "camelCase")`, nested `address`/`contact` objects, `entity_type` + `brn`/`brn_type`/`brn_country` instead of the prior shape). The previous shape didn't match the server endpoint and was returning 400s.
+- **Partial-update friendly:** for resubmits on existing workspaces, send only the fields you want to change — everything else is filled from the existing record. Hosted page URLs (`/biz/`, `/opt-in/`, `/legal/`) generated during provision are auto-preserved.
+- `enterprise.workspaces().resubmit_verification(workspace_id, partial)`: convenience alias for resubmits — same as `submit_verification` but reads more naturally for one-field-change use cases.
+- New `VerificationSubmitInput` struct — type-safe payload shape with all fields as `Option<...>` so `None` = omit. Implements `Default`, so partial updates are ergonomic via struct-update syntax. `SubmitVerificationRequest` is kept as a type alias for backwards compatibility.
+- `VerificationAddress` and `VerificationContact` fields are now all `Option<...>` to support the partial-update model. Both implement `Default`.
+
+### Server-side fixes paired with this release
+
+- `/api/v1/enterprise/workspaces/:id/verification/submit` now returns specific missing-field errors (e.g. `"Missing required fields: website"`) instead of listing every required field whether present or not.
+- Endpoint accepts both flat and `{ verification: {...} }` wrapped shapes (matches `/enterprise/provision`).
+- `useCase` validation expanded from 23 entries to the full 43-value Telnyx enum.
+
 ## 3.29.0
 
 ### Minor Changes

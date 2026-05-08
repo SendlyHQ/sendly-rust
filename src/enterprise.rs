@@ -13,7 +13,7 @@ use crate::models::{
     OptInPage, PoolCredits, ProvisionWorkspaceRequest, ProvisionWorkspaceResponse, QuotaSettings,
     ResumeWorkspaceResponse, RevokeKeyResponse, SendInvitationRequest, SetCustomDomainRequest,
     SetCustomDomainResponse, SetEnterpriseWebhookRequest, SetWorkspaceWebhookRequest,
-    SetWorkspaceWebhookResponse, SubmitVerificationRequest, SubmitVerificationResponse,
+    SetWorkspaceWebhookResponse, SubmitVerificationResponse, VerificationSubmitInput,
     SuspendWorkspaceRequest, SuspendWorkspaceResponse, UpdateAutoTopUpRequest,
     UpdateOptInPageRequest, UpdateQuotaRequest, VerificationDocumentUploadResponse,
     WorkspaceCredits, WorkspaceKey, WorkspaceKeyResponse, WorkspaceTransferCreditsRequest,
@@ -52,17 +52,37 @@ impl<'a> WorkspacesResource<'a> {
         Ok(response.json().await?)
     }
 
+    /// Submit (or resubmit) a verification for an enterprise workspace.
+    ///
+    /// Partial-update friendly (May 2026): for resubmits on an existing
+    /// workspace, you only need to send the fields you want to change —
+    /// everything else is preserved from the existing record. Hosted page
+    /// URLs (`/biz/`, `/opt-in/`, `/legal/`) generated during provision
+    /// are auto-preserved.
+    ///
+    /// For sole proprietors, leave `brn`, `brn_type`, `brn_country` as
+    /// `None` — the server strips them before forwarding to the carrier.
     pub async fn submit_verification(
         &self,
         workspace_id: impl AsRef<str>,
-        request: SubmitVerificationRequest,
+        data: VerificationSubmitInput,
     ) -> Result<SubmitVerificationResponse> {
         let path = format!(
             "/enterprise/workspaces/{}/verification/submit",
             workspace_id.as_ref()
         );
-        let response = self.client.post(&path, &request).await?;
+        let response = self.client.post(&path, &data).await?;
         Ok(response.json().await?)
+    }
+
+    /// Convenience alias for resubmits. Reads more naturally when you only
+    /// want to update a few fields after a rejection.
+    pub async fn resubmit_verification(
+        &self,
+        workspace_id: impl AsRef<str>,
+        partial: VerificationSubmitInput,
+    ) -> Result<SubmitVerificationResponse> {
+        self.submit_verification(workspace_id, partial).await
     }
 
     pub async fn inherit_verification(
