@@ -22,7 +22,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sendly = "3.29.0"
+sendly = "3.31.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -248,13 +248,13 @@ while let Some(result) = stream.next().await {
 ## Webhooks
 
 ```rust
-use sendly::{Sendly, CreateWebhookRequest, UpdateWebhookRequest};
+use sendly::{Sendly, UpdateWebhookRequest};
 
 // Create a webhook endpoint
-let webhook = client.webhooks().create(CreateWebhookRequest {
-    url: "https://example.com/webhooks/sendly".to_string(),
-    events: vec!["message.delivered".to_string(), "message.failed".to_string()],
-}).await?;
+let webhook = client.webhooks().create(
+    "https://example.com/webhooks/sendly",
+    vec!["message.delivered", "message.failed"],
+).await?;
 
 println!("Webhook ID: {}", webhook.id);
 println!("Secret: {}", webhook.secret); // Store securely!
@@ -300,21 +300,21 @@ let account = client.account().get().await?;
 println!("Email: {}", account.email);
 
 // Check credit balance
-let credits = client.account().get_credits().await?;
+let credits = client.account().credits().await?;
 println!("Available: {} credits", credits.available_balance);
 println!("Reserved: {} credits", credits.reserved_balance);
 println!("Total: {} credits", credits.balance);
 
 // View credit transaction history
-let transactions = client.account().get_credit_transactions().await?;
+let transactions = client.account().transactions(None).await?;
 for tx in &transactions.data {
-    println!("{}: {} credits - {}", tx.tx_type, tx.amount, tx.description);
+    println!("{:?}: {} credits - {}", tx.transaction_type, tx.amount, tx.description);
 }
 
 // List API keys
-let keys = client.account().list_api_keys().await?;
-for key in &keys.data {
-    println!("{}: {}*** ({})", key.name, key.prefix, key.key_type);
+let keys = client.account().api_keys().await?;
+for key in &keys {
+    println!("{}: {}***", key.name, key.prefix);
 }
 
 // Get a specific API key
@@ -325,12 +325,8 @@ let usage = client.account().get_api_key_usage("key_xxx").await?;
 println!("Messages sent: {}", usage.messages_sent);
 
 // Create a new API key
-let new_key = client.account().create_api_key(CreateApiKeyRequest {
-    name: "Production Key".to_string(),
-    key_type: "live".to_string(),
-    scopes: Some(vec!["sms:send".to_string(), "sms:read".to_string()]),
-}).await?;
-println!("New key: {}", new_key.key); // Only shown once!
+let new_key = client.account().create_api_key("Production Key").await?;
+println!("New key: {:?}", new_key.key); // Only shown once!
 
 // Revoke an API key
 client.account().revoke_api_key("key_xxx").await?;
@@ -442,9 +438,11 @@ The Enterprise API lets you programmatically manage workspaces, verification, cr
 Create a fully configured workspace in a single call:
 
 ```rust
+use sendly::ProvisionWorkspaceRequest;
+
 let client = Sendly::new("sk_live_v1_master_YOUR_KEY");
 
-let options = ProvisionWorkspaceOptions::new("Acme Insurance - Austin")
+let request = ProvisionWorkspaceRequest::new("Acme Insurance - Austin")
     .source_workspace_id("ws_verified")
     .credit_amount(5000)
     .credit_source_workspace_id("SOURCE_WORKSPACE_ID")
@@ -452,10 +450,10 @@ let options = ProvisionWorkspaceOptions::new("Acme Insurance - Austin")
     .key_type("live")
     .generate_opt_in_page(true);
 
-let result = client.enterprise().provision(&options).await?;
+let result = client.enterprise().provision(request).await?;
 
-println!("{}", result.workspace.id);
-println!("{}", result.key.as_ref().unwrap().key);
+println!("{:?}", result.workspace);
+println!("{:?}", result.key);
 ```
 
 Three provisioning modes:
@@ -469,7 +467,9 @@ Three provisioning modes:
 ### Workspace Management
 
 ```rust
-let ws = client.enterprise().workspaces().create("Acme Insurance", None).await?;
+use sendly::{CreateWorkspaceRequest, CreateWorkspaceKeyRequest, AnalyticsPeriod};
+
+let ws = client.enterprise().workspaces().create(CreateWorkspaceRequest::new("Acme Insurance")).await?;
 let list = client.enterprise().workspaces().list().await?;
 let detail = client.enterprise().workspaces().get("ws_xxx").await?;
 client.enterprise().workspaces().delete("ws_xxx").await?;
@@ -482,8 +482,8 @@ client.enterprise().workspaces()
     .transfer_credits("ws_dest", "ws_source", 5000).await?;
 
 let key = client.enterprise().workspaces()
-    .create_key("ws_xxx", Some("Production"), Some("live")).await?;
-println!("{}", key.key);
+    .create_key("ws_xxx", CreateWorkspaceKeyRequest::new("Production").key_type("live")).await?;
+println!("{:?}", key);
 
 client.enterprise().workspaces().revoke_key("ws_xxx", "key_abc").await?;
 ```
@@ -493,7 +493,7 @@ client.enterprise().workspaces().revoke_key("ws_xxx", "key_abc").await?;
 ```rust
 client.enterprise().webhooks().set("https://yourapp.com/webhooks").await?;
 let overview = client.enterprise().analytics().overview().await?;
-let messages = client.enterprise().analytics().messages(Some("30d"), None).await?;
+let messages = client.enterprise().analytics().messages(Some(AnalyticsPeriod::new().period("30d"))).await?;
 let delivery = client.enterprise().analytics().delivery().await?;
 ```
 

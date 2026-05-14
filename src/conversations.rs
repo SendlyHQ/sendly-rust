@@ -3,7 +3,7 @@ use crate::error::{Error, Result};
 use crate::models::{
     AddLabelsRequest, Conversation, ConversationContextResponse, ConversationListResponse,
     ConversationWithMessages, GetConversationOptions, ListConversationsOptions, Message,
-    ReplyToConversationRequest, UpdateConversationRequest,
+    ReplyToConversationRequest, SuggestRepliesResponse, UpdateConversationRequest,
 };
 
 /// Conversations resource for managing SMS conversation threads.
@@ -371,6 +371,25 @@ impl<'a> ConversationsResource<'a> {
 
         let response = self.client.get(&path, &query).await?;
         let result: ConversationContextResponse = response.json().await?;
+
+        Ok(result)
+    }
+
+    /// Generates AI-suggested replies for a conversation based on its
+    /// recent message history. Mirrors `conversations.suggestReplies()`
+    /// in our Node/Python/Ruby/Go/C# SDKs.
+    pub async fn suggest_replies(&self, id: &str) -> Result<SuggestRepliesResponse> {
+        if id.is_empty() {
+            return Err(Error::Validation {
+                message: "Conversation ID is required".to_string(),
+            });
+        }
+
+        let encoded_id = urlencoding::encode(id);
+        let path = format!("/conversations/{}/suggest-replies", encoded_id);
+
+        let response = self.client.post(&path, &serde_json::json!({})).await?;
+        let result: SuggestRepliesResponse = response.json().await?;
 
         Ok(result)
     }

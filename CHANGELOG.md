@@ -1,5 +1,20 @@
 # sendly (Rust)
 
+## 3.31.0
+
+### Minor Changes
+
+- New method **`conversations().suggest_replies(id)`** — returns AI-generated reply suggestions for a conversation based on its recent message history. Mirrors the same method on our Node, Python, Ruby, Go, and C# SDKs (closes a feature gap).
+
+  ```rust
+  let response = client.conversations().suggest_replies("conv_abc").await?;
+  for s in response.suggestions {
+      println!("{} ({})", s.text, s.tone);
+  }
+  ```
+
+  New types `SuggestedReply` and `SuggestRepliesResponse` are re-exported from the crate root.
+
 ## 3.30.0
 
 ### Minor Changes

@@ -3128,3 +3128,25 @@ impl ListDraftsOptions {
         params
     }
 }
+
+/// A single AI-generated suggested reply.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SuggestedReply {
+    /// The suggested reply text.
+    pub text: String,
+    /// The tone of the suggested reply.
+    pub tone: String,
+}
+
+/// Response from `conversations.suggest_replies()`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SuggestRepliesResponse {
+    /// The suggested replies.
+    pub suggestions: Vec<SuggestedReply>,
+    /// The message ID the suggestions were generated against.
+    #[serde(default, alias = "basedOnMessageId")]
+    pub based_on_message_id: Option<String>,
+    /// The model that produced the suggestions.
+    #[serde(default)]
+    pub model: Option<String>,
+}
