@@ -1,5 +1,42 @@
 # sendly (Rust)
 
+## 3.32.0
+
+### Minor Changes
+
+- New **`business_upgrade()`** resource on the client — the toll-free entity-upgrade ("fork-with-new-number") flow. When a customer forms a new legal entity (e.g. an LLC), this resource reserves a new toll-free number under the new entity, submits it for carrier review, and atomically swaps to it on approval — without disrupting outbound SMS during the 1-2 week review window. Mirrors the same resource on our Node, Python, Ruby, Go, and C# SDKs.
+
+  ```rust
+  use sendly::{Sendly, business_upgrade::{StartUpgradeRequest, BrnType, EntityType, EinDocument}};
+
+  let client = Sendly::new("sk_live_v1_xxx");
+
+  // 1) Preview validation (no writes)
+  let report = client.business_upgrade().preflight(/* PreflightCandidate { ... } */).await?;
+
+  // 2) Submit the upgrade with the IRS letter
+  let pdf = std::fs::read("./CP-575.pdf")?;
+  let result = client
+      .business_upgrade()
+      .start(
+          "ws_abc",
+          StartUpgradeRequest::new(
+              "Acme Holdings LLC",
+              "12-3456789",
+              BrnType::Ein,
+              "US",
+              EntityType::PrivateProfit,
+          ),
+          Some(EinDocument::new(pdf).filename("CP-575.pdf")),
+      )
+      .await?;
+
+  // 3) Poll status, cancel, resubmit, or set disposition once approved
+  let status = client.business_upgrade().status("ws_abc").await?;
+  ```
+
+  Seven methods: `preflight`, `best_prefill`, `start`, `status`, `cancel`, `resubmit`, `set_disposition`. File upload uses `reqwest::multipart` via the SDK's existing `post_multipart` helper. New types (`PreflightCandidate`, `PreflightReport`, `StartUpgradeRequest`, `ResubmitUpgradeRequest`, `EinDocument`, `Disposition`, `SetDispositionRequest`, plus response structs) live in the `business_upgrade` module; `BusinessUpgradeResource` is re-exported from the crate root.
+
 ## 3.31.0
 
 ### Minor Changes

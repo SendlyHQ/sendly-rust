@@ -2,6 +2,7 @@ use reqwest::{multipart, Client, Response, StatusCode};
 use std::time::Duration;
 
 use crate::account_resource::AccountResource;
+use crate::business_upgrade::BusinessUpgradeResource;
 use crate::campaigns::CampaignsResource;
 use crate::contacts::ContactsResource;
 use crate::conversations::ConversationsResource;
@@ -203,6 +204,11 @@ impl Sendly {
     /// Returns the Enterprise resource.
     pub fn enterprise(&self) -> EnterpriseResource {
         EnterpriseResource::new(self)
+    }
+
+    /// Returns the BusinessUpgrade resource.
+    pub fn business_upgrade(&self) -> BusinessUpgradeResource {
+        BusinessUpgradeResource::new(self)
     }
 
     /// Makes a GET request.
