@@ -96,6 +96,16 @@ pub struct OwnedNumber {
     /// Monthly cost in cents.
     #[serde(default, alias = "monthlyCostCents")]
     pub monthly_cost_cents: i64,
+    /// When regulatory documents were submitted for carrier review, as an
+    /// ISO-8601 timestamp. `None` means the number still needs documents.
+    #[serde(default, alias = "requirementsSubmittedAt")]
+    pub requirements_submitted_at: Option<String>,
+    /// Whether the number is scheduled for release at the end of the period.
+    #[serde(default, alias = "pendingCancellation")]
+    pub pending_cancellation: bool,
+    /// When the number is scheduled to be released, as an ISO-8601 timestamp.
+    #[serde(default, alias = "scheduledReleaseAt")]
+    pub scheduled_release_at: Option<String>,
 }
 
 /// Response from [`NumbersResource::list`].
