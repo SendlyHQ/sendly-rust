@@ -195,6 +195,9 @@ pub struct SendMessageRequest {
     pub to: String,
     /// Message content (max 1600 characters).
     pub text: String,
+    /// Sender ID or phone number (optional). Only sent to the API when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
     /// Message type: "marketing" (default, subject to quiet hours) or "transactional" (24/7).
     #[serde(skip_serializing_if = "Option::is_none", rename = "messageType")]
     pub message_type: Option<MessageType>,

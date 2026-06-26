@@ -86,6 +86,7 @@ async fn test_client_api_key_in_headers() {
         .send(sendly::SendMessageRequest {
             to: "+15551234567".to_string(),
             text: "Test".to_string(),
+            from: None,
             message_type: None,
             media_urls: None,
             metadata: None,
@@ -125,6 +126,7 @@ async fn test_client_user_agent_header() {
         .send(sendly::SendMessageRequest {
             to: "+15551234567".to_string(),
             text: "Test".to_string(),
+            from: None,
             message_type: None,
             media_urls: None,
             metadata: None,

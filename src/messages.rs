@@ -46,6 +46,7 @@ impl<'a> Messages<'a> {
     /// let message = client.messages().send(SendMessageRequest {
     ///     to: "+15551234567".to_string(),
     ///     text: "Hello from Sendly!".to_string(),
+    ///     from: None,
     ///     message_type: None,
     ///     media_urls: None,
     ///     metadata: None,
@@ -93,6 +94,7 @@ impl<'a> Messages<'a> {
         self.send(SendMessageRequest {
             to: to.into(),
             text: text.into(),
+            from: None,
             message_type: None,
             media_urls: None,
             metadata: None,
