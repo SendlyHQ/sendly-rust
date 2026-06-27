@@ -43,14 +43,9 @@ impl<'a> Messages<'a> {
     /// # async fn example() -> sendly::Result<()> {
     /// let client = Sendly::new("sk_live_v1_xxx");
     ///
-    /// let message = client.messages().send(SendMessageRequest {
-    ///     to: "+15551234567".to_string(),
-    ///     text: "Hello from Sendly!".to_string(),
-    ///     from: None,
-    ///     message_type: None,
-    ///     media_urls: None,
-    ///     metadata: None,
-    /// }).await?;
+    /// let message = client.messages()
+    ///     .send(SendMessageRequest::new("+15551234567", "Hello from Sendly!"))
+    ///     .await?;
     ///
     /// println!("Sent: {}", message.id);
     /// # Ok(())

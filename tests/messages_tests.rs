@@ -23,14 +23,7 @@ async fn test_send_success() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Hello World".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Hello World".to_string()))
         .await;
 
     assert!(result.is_ok());
@@ -50,14 +43,7 @@ async fn test_send_invalid_phone_format() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "invalid-phone".to_string(),
-            text: "Hello".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("invalid-phone".to_string(), "Hello".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -76,14 +62,7 @@ async fn test_send_empty_text() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -104,14 +83,7 @@ async fn test_send_text_too_long() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: long_text,
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), long_text))
         .await;
 
     assert!(result.is_err());
@@ -132,14 +104,7 @@ async fn test_send_authentication_error() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Hello".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Hello".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -160,14 +125,7 @@ async fn test_send_insufficient_credits() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Hello".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Hello".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -188,14 +146,7 @@ async fn test_send_rate_limit() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Hello".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Hello".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -220,14 +171,7 @@ async fn test_send_server_error() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Hello".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Hello".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -251,14 +195,7 @@ async fn test_send_network_error() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Hello".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Hello".to_string()))
         .await;
 
     assert!(result.is_err());

@@ -24,14 +24,7 @@ async fn test_error_authentication() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -64,14 +57,7 @@ async fn test_error_authentication_with_message_field() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -103,14 +89,7 @@ async fn test_error_rate_limit_with_retry_after() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -150,14 +129,7 @@ async fn test_error_rate_limit_without_retry_after() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -191,14 +163,7 @@ async fn test_error_insufficient_credits() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -233,14 +198,7 @@ async fn test_error_validation_bad_request() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -276,14 +234,7 @@ async fn test_error_validation_unprocessable_entity() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -302,14 +253,7 @@ async fn test_error_validation_client_side_phone() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "invalid-phone".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("invalid-phone".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -328,14 +272,7 @@ async fn test_error_validation_client_side_text() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -393,14 +330,7 @@ async fn test_error_network() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -446,14 +376,7 @@ async fn test_error_timeout() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -487,14 +410,7 @@ async fn test_error_api_500() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -534,14 +450,7 @@ async fn test_error_api_with_code() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());
@@ -573,14 +482,7 @@ async fn test_error_api_fallback_message() {
 
     let result = client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
         .await;
 
     assert!(result.is_err());

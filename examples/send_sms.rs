@@ -12,14 +12,10 @@ async fn main() {
     // Send an SMS
     match client
         .messages()
-        .send(SendMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Hello from Sendly Rust SDK!".to_string(),
-            from: None,
-            message_type: None,
-            media_urls: None,
-            metadata: None,
-        })
+        .send(SendMessageRequest::new(
+            "+15551234567",
+            "Hello from Sendly Rust SDK!",
+        ))
         .await
     {
         Ok(message) => {

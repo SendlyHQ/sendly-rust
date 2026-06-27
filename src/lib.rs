@@ -11,14 +11,9 @@
 //! async fn main() -> Result<(), sendly::Error> {
 //!     let client = Sendly::new("sk_live_v1_your_api_key");
 //!
-//!     let message = client.messages().send(SendMessageRequest {
-//!         to: "+15551234567".to_string(),
-//!         text: "Hello from Sendly!".to_string(),
-//!         from: None,
-//!         message_type: None,
-//!         media_urls: None,
-//!         metadata: None,
-//!     }).await?;
+//!     let message = client.messages()
+//!         .send(SendMessageRequest::new("+15551234567", "Hello from Sendly!"))
+//!         .await?;
 //!
 //!     println!("Message sent: {}", message.id);
 //!     Ok(())

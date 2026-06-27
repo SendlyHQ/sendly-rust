@@ -189,7 +189,12 @@ impl std::fmt::Display for MessageType {
 }
 
 /// Request to send an SMS message.
-#[derive(Debug, Clone, Serialize)]
+///
+/// Construct with [`SendMessageRequest::new`] and the `with_*` builder methods.
+/// This type is `#[non_exhaustive]`, so external crates must use the constructor
+/// rather than a struct literal.
+#[derive(Debug, Clone, Default, Serialize)]
+#[non_exhaustive]
 pub struct SendMessageRequest {
     /// Recipient phone number in E.164 format.
     pub to: String,
@@ -207,6 +212,44 @@ pub struct SendMessageRequest {
     /// Custom metadata to attach to the message (max 4KB).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+impl SendMessageRequest {
+    /// Creates a new send request for the given recipient and message text.
+    pub fn new(to: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            to: to.into(),
+            text: text.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Sets the sender ID or phone number.
+    pub fn with_from(mut self, from: impl Into<String>) -> Self {
+        self.from = Some(from.into());
+        self
+    }
+
+    /// Sets the message type (marketing or transactional).
+    pub fn with_message_type(mut self, message_type: MessageType) -> Self {
+        self.message_type = Some(message_type);
+        self
+    }
+
+    /// Sets the media URLs for an MMS message.
+    pub fn with_media_urls(mut self, media_urls: Vec<String>) -> Self {
+        self.media_urls = Some(media_urls);
+        self
+    }
+
+    /// Sets custom metadata to attach to the message.
+    pub fn with_metadata(
+        mut self,
+        metadata: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
 }
 
 /// An uploaded media file.

@@ -22,7 +22,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sendly = "3.31.0"
+sendly = "3.36.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -36,10 +36,9 @@ async fn main() -> sendly::Result<()> {
     let client = Sendly::new("sk_live_v1_your_api_key");
 
     // Send an SMS
-    let message = client.messages().send(SendMessageRequest {
-        to: "+15551234567".to_string(),
-        text: "Hello from Sendly!".to_string(),
-    }).await?;
+    let message = client.messages()
+        .send(SendMessageRequest::new("+15551234567", "Hello from Sendly!"))
+        .await?;
 
     println!("Message sent: {}", message.id);
     Ok(())
@@ -89,7 +88,7 @@ let client = Sendly::with_config("sk_live_v1_xxx", config);
 ### Send an SMS
 
 ```rust
-use sendly::{Sendly, SendMessageRequest};
+use sendly::{Sendly, SendMessageRequest, MessageType};
 
 let client = Sendly::new("sk_live_v1_xxx");
 
@@ -98,13 +97,17 @@ let message = client.messages()
     .send_to("+15551234567", "Check out our new features!")
     .await?;
 
+// Send from one of your owned numbers
+let message = client.messages().send(
+    SendMessageRequest::new("+15551234567", "Hello from Sendly!")
+        .with_from("+447111111111"),
+).await?;
+
 // Transactional message (bypasses quiet hours)
-let message = client.messages().send(SendMessageRequest {
-    to: "+15551234567".to_string(),
-    text: "Your verification code is: 123456".to_string(),
-    message_type: Some(MessageType::Transactional),
-    ..Default::default()
-}).await?;
+let message = client.messages().send(
+    SendMessageRequest::new("+15551234567", "Your verification code is: 123456")
+        .with_message_type(MessageType::Transactional),
+).await?;
 
 // With custom metadata (max 4KB)
 use std::collections::HashMap;
@@ -112,12 +115,10 @@ let mut metadata = HashMap::new();
 metadata.insert("order_id".to_string(), serde_json::json!("12345"));
 metadata.insert("customer_id".to_string(), serde_json::json!("cust_abc"));
 
-let message = client.messages().send(SendMessageRequest {
-    to: "+15551234567".to_string(),
-    text: "Your order #12345 has shipped!".to_string(),
-    metadata: Some(metadata),
-    ..Default::default()
-}).await?;
+let message = client.messages().send(
+    SendMessageRequest::new("+15551234567", "Your order #12345 has shipped!")
+        .with_metadata(metadata),
+).await?;
 
 println!("ID: {}", message.id);
 println!("Status: {}", message.status);
