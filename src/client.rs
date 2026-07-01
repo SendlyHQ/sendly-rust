@@ -15,6 +15,7 @@ use crate::numbers::NumbersResource;
 use crate::rules::RulesResource;
 use crate::messages::Messages;
 use crate::templates::TemplatesResource;
+use crate::tendlc::TenDlcResource;
 use crate::verify::VerifyResource;
 use crate::webhook_resource::WebhooksResource;
 
@@ -205,6 +206,11 @@ impl Sendly {
     /// Returns the Numbers resource.
     pub fn numbers(&self) -> NumbersResource {
         NumbersResource::new(self)
+    }
+
+    /// Returns the 10DLC resource.
+    pub fn ten_dlc(&self) -> TenDlcResource {
+        TenDlcResource::new(self)
     }
 
     /// Returns the Enterprise resource.

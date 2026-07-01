@@ -71,6 +71,7 @@ mod rules;
 mod messages;
 mod models;
 mod templates;
+mod tendlc;
 mod verify;
 mod webhook_resource;
 
@@ -92,5 +93,6 @@ pub use messages::Messages;
 pub use models::*;
 pub use numbers::*;
 pub use templates::*;
+pub use tendlc::*;
 pub use verify::*;
 pub use webhook_resource::WebhooksResource;
