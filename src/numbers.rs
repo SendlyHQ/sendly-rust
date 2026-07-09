@@ -96,6 +96,13 @@ pub struct OwnedNumber {
     /// Monthly cost in cents.
     #[serde(default, alias = "monthlyCostCents")]
     pub monthly_cost_cents: i64,
+    /// Whether this is the workspace's default sending number.
+    ///
+    /// Present on the single-number responses ([`NumbersResource::get`],
+    /// [`NumbersResource::update`]); omitted from the [`NumbersResource::list`]
+    /// projection (then `None`).
+    #[serde(default, alias = "isDefault")]
+    pub is_default: Option<bool>,
     /// When regulatory documents were submitted for carrier review, as an
     /// ISO-8601 timestamp. `None` means the number still needs documents.
     #[serde(default, alias = "requirementsSubmittedAt")]
@@ -238,6 +245,74 @@ impl BuyNumberRequest {
     }
 }
 
+/// Request body for [`NumbersResource::update`].
+///
+/// Supply at least one field. Only these two mutations are supported:
+///
+/// - `is_default: true` — make this number the workspace's default sender. The
+///   number must be `active`, or the call fails with an `invalid_state`
+///   validation error.
+/// - `pending_cancellation: false` — cancel a previously scheduled release and
+///   keep the number.
+///
+/// A body with neither field is rejected before it reaches the API. Build one
+/// with [`UpdateNumberRequest::make_default`] and/or
+/// [`UpdateNumberRequest::keep`].
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateNumberRequest {
+    /// Set to `true` to make this the workspace's default sender (requires an
+    /// `active` number).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_default: Option<bool>,
+    /// Set to `false` to cancel a scheduled release and keep the number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_cancellation: Option<bool>,
+}
+
+impl UpdateNumberRequest {
+    /// Creates a new, empty update request.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Make this number the workspace's default sender (requires an `active`
+    /// number).
+    pub fn make_default(mut self) -> Self {
+        self.is_default = Some(true);
+        self
+    }
+
+    /// Cancel a previously scheduled release and keep the number.
+    pub fn keep(mut self) -> Self {
+        self.pending_cancellation = Some(false);
+        self
+    }
+
+    fn has_mutation(&self) -> bool {
+        self.is_default.is_some() || self.pending_cancellation.is_some()
+    }
+}
+
+/// Response from [`NumbersResource::release`].
+///
+/// - Immediate release: `success` is `true` and `scheduled` is `None`.
+/// - Scheduled release (a live paid purchase is cancelled at the end of the
+///   paid period): `scheduled` is `Some(true)` and `scheduled_release_at`
+///   carries the ISO-8601 effective time.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReleaseNumberResponse {
+    /// Always `true` on success.
+    #[serde(default)]
+    pub success: bool,
+    /// `true` when the release was scheduled for the end of the paid period.
+    #[serde(default)]
+    pub scheduled: Option<bool>,
+    /// When the scheduled release takes effect, as an ISO-8601 timestamp.
+    #[serde(default, alias = "scheduledReleaseAt")]
+    pub scheduled_release_at: Option<String>,
+}
+
 /// Numbers resource — discover, buy, and list phone numbers.
 ///
 /// # Example
@@ -319,6 +394,67 @@ impl<'a> NumbersResource<'a> {
     /// List the phone numbers you own.
     pub async fn list(&self) -> Result<OwnedNumbersResponse> {
         let response = self.client.get("/numbers", &[]).await?;
+        Ok(response.json().await?)
+    }
+
+    /// Get a single phone number you own by id. Unlike [`NumbersResource::list`],
+    /// the returned record includes [`OwnedNumber::is_default`].
+    pub async fn get(&self, id: &str) -> Result<OwnedNumber> {
+        if id.is_empty() {
+            return Err(Error::Validation {
+                message: "Number ID is required".to_string(),
+            });
+        }
+        let encoded_id = urlencoding::encode(id);
+        let path = format!("/numbers/{}", encoded_id);
+        let response = self.client.get(&path, &[]).await?;
+        Ok(response.json().await?)
+    }
+
+    /// Update a phone number you own. Supply at least one supported mutation via
+    /// [`UpdateNumberRequest`]:
+    ///
+    /// - [`make_default`](UpdateNumberRequest::make_default) — make this the
+    ///   workspace's default sending number (the number must be `active`).
+    /// - [`keep`](UpdateNumberRequest::keep) — cancel a previously scheduled
+    ///   release and keep the number.
+    ///
+    /// Returns the updated record (including [`OwnedNumber::is_default`]).
+    pub async fn update(
+        &self,
+        id: &str,
+        request: UpdateNumberRequest,
+    ) -> Result<OwnedNumber> {
+        if id.is_empty() {
+            return Err(Error::Validation {
+                message: "Number ID is required".to_string(),
+            });
+        }
+        if !request.has_mutation() {
+            return Err(Error::Validation {
+                message:
+                    "Provide at least one of make_default() or keep() (isDefault / pendingCancellation)"
+                        .to_string(),
+            });
+        }
+        let encoded_id = urlencoding::encode(id);
+        let path = format!("/numbers/{}", encoded_id);
+        let response = self.client.patch(&path, &request).await?;
+        Ok(response.json().await?)
+    }
+
+    /// Release a phone number you own. A live paid purchase is cancelled at the
+    /// end of the paid period (the response then carries `scheduled: true` and a
+    /// `scheduled_release_at`); everything else is released immediately.
+    pub async fn release(&self, id: &str) -> Result<ReleaseNumberResponse> {
+        if id.is_empty() {
+            return Err(Error::Validation {
+                message: "Number ID is required".to_string(),
+            });
+        }
+        let encoded_id = urlencoding::encode(id);
+        let path = format!("/numbers/{}", encoded_id);
+        let response = self.client.delete(&path).await?;
         Ok(response.json().await?)
     }
 

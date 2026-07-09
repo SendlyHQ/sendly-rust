@@ -5,8 +5,9 @@ use crate::client::Sendly;
 use crate::error::{Error, Result};
 use crate::models::{
     BatchList, BatchMessageResponse, BatchPreviewResponse, CancelScheduledMessageResponse,
-    ListBatchesOptions, ListMessagesOptions, ListScheduledMessagesOptions, Message, MessageList,
-    ScheduleMessageRequest, ScheduledMessage, ScheduledMessageList, SendBatchRequest,
+    EnhanceMessageRequest, EnhanceMessageResponse, GroupMessageResponse, ListBatchesOptions,
+    ListMessagesOptions, ListScheduledMessagesOptions, Message, MessageList, ScheduleMessageRequest,
+    ScheduledMessage, ScheduledMessageList, SendBatchRequest, SendGroupMessageRequest,
     SendMessageRequest,
 };
 
@@ -95,6 +96,122 @@ impl<'a> Messages<'a> {
             metadata: None,
         })
         .await
+    }
+
+    /// Sends a group MMS to 2-8 recipients (US/Canada only).
+    ///
+    /// Creates a multi-party MMS conversation: every recipient sees the others,
+    /// and replies fan out to all participants. Group messaging is an A2P 10DLC
+    /// capability — the sending number must be an MMS-enabled, 10DLC-registered
+    /// number you own. Omit `from` to use your workspace's default sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - Group message details (2-8 recipients, text and/or media)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{Sendly, SendGroupMessageRequest};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let group = client.messages().send_group(
+    ///     SendGroupMessageRequest::new(vec![
+    ///         "+14155551234".to_string(),
+    ///         "+14155555678".to_string(),
+    ///     ])
+    ///     .with_text("Hey team - quick sync at noon?"),
+    /// ).await?;
+    ///
+    /// println!("Group: {:?}", group.group_message_id);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_group(
+        &self,
+        request: SendGroupMessageRequest,
+    ) -> Result<GroupMessageResponse> {
+        if request.to.len() < 2 {
+            return Err(Error::Validation {
+                message: "Group messaging requires at least 2 recipients".to_string(),
+            });
+        }
+        if request.to.len() > 8 {
+            return Err(Error::Validation {
+                message: "Group messaging supports at most 8 recipients".to_string(),
+            });
+        }
+        for recipient in &request.to {
+            validate_phone(recipient)?;
+        }
+        let has_media = request.media_urls.as_ref().map_or(false, |u| !u.is_empty());
+        let has_text = request.text.as_ref().map_or(false, |t| !t.is_empty());
+        if !has_text && !has_media {
+            return Err(Error::Validation {
+                message: "Provide 'text' or 'media_urls'".to_string(),
+            });
+        }
+
+        let response = self.client.post("/messages/group", &request).await?;
+        let result: GroupMessageResponse = response.json().await?;
+
+        Ok(result)
+    }
+
+    /// AI-enhances a draft message for clarity, compliance, and send-readiness.
+    ///
+    /// Rewrites the supplied text into a single, polished SMS segment (≤160
+    /// chars) and returns a short explanation of what changed. Pass
+    /// `message_type` to steer the rewrite (e.g. "marketing" vs
+    /// "transactional"); with no `text` it generates a suitable message for that
+    /// type instead. At least one of `text` or `message_type` is required.
+    ///
+    /// If AI enhancement is unavailable for the account, the response falls back
+    /// to the original text with an empty explanation.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The draft text and/or a message-type hint
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{Sendly, EnhanceMessageRequest};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let result = client.messages().enhance(
+    ///     EnhanceMessageRequest::new()
+    ///         .with_text("hey come check out our sale this weekend")
+    ///         .with_message_type("marketing"),
+    /// ).await?;
+    ///
+    /// println!("{}", result.enhanced);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn enhance(
+        &self,
+        request: EnhanceMessageRequest,
+    ) -> Result<EnhanceMessageResponse> {
+        let has_text = request.text.as_ref().map_or(false, |t| !t.is_empty());
+        let has_type = request
+            .message_type
+            .as_ref()
+            .map_or(false, |t| !t.is_empty());
+        if !has_text && !has_type {
+            return Err(Error::Validation {
+                message: "Provide 'text' or 'message_type'".to_string(),
+            });
+        }
+
+        let response = self.client.post("/ai/enhance", &request).await?;
+        let result: EnhanceMessageResponse = response.json().await?;
+
+        Ok(result)
     }
 
     /// Lists messages.

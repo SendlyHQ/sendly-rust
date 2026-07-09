@@ -10,6 +10,7 @@ use crate::drafts::DraftsResource;
 use crate::enterprise::EnterpriseResource;
 use crate::error::{ApiErrorResponse, Error, Result};
 use crate::labels::LabelsResource;
+use crate::links::LinksResource;
 use crate::media::Media;
 use crate::numbers::NumbersResource;
 use crate::rules::RulesResource;
@@ -191,6 +192,11 @@ impl Sendly {
     /// Returns the Rules resource.
     pub fn rules(&self) -> RulesResource {
         RulesResource::new(self)
+    }
+
+    /// Returns the Links resource (branded URL shortening).
+    pub fn links(&self) -> LinksResource {
+        LinksResource::new(self)
     }
 
     /// Returns the Drafts resource.

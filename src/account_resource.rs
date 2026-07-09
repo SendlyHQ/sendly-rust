@@ -2,9 +2,11 @@
 
 use crate::client::Sendly;
 use crate::error::Result;
+use crate::error::Error;
 use crate::models::{
     Account, ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, CreditTransactionList, Credits,
-    ListTransactionsOptions, TransferCreditsRequest, TransferCreditsResponse,
+    ListTransactionsOptions, RotateApiKeyRequest, RotateApiKeyResponse, TransferCreditsRequest,
+    TransferCreditsResponse,
 };
 use serde::Deserialize;
 
@@ -308,5 +310,78 @@ impl<'a> AccountResource<'a> {
         let path = format!("/account/keys/{}", id.as_ref());
         self.client.delete(&path).await?;
         Ok(())
+    }
+
+    /// Rotates an API key, using the default 24-hour grace period.
+    ///
+    /// Issues a new key and keeps the old one working for a grace period so you
+    /// can roll callers over without downtime. The new secret's raw value is on
+    /// [`RotatedApiKey::secret`](crate::RotatedApiKey::secret) and is shown only
+    /// once — store it now.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - API key ID to rotate
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::Sendly;
+    ///
+    /// # async fn example() -> Result<(), sendly::Error> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let result = client.account().rotate_api_key("key_abc123").await?;
+    /// println!("New key (save it!): {}", result.new_key.secret);
+    /// println!("{}", result.message);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn rotate_api_key(
+        &self,
+        id: impl AsRef<str>,
+    ) -> Result<RotateApiKeyResponse> {
+        self.rotate_api_key_with_options(id, RotateApiKeyRequest::default())
+            .await
+    }
+
+    /// Rotates an API key with a custom grace period (24-168 hours).
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - API key ID to rotate
+    /// * `request` - Rotation options (grace period)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{Sendly, RotateApiKeyRequest};
+    ///
+    /// # async fn example() -> Result<(), sendly::Error> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let result = client.account().rotate_api_key_with_options(
+    ///     "key_abc123",
+    ///     RotateApiKeyRequest::new().grace_period_hours(72),
+    /// ).await?;
+    /// println!("New key: {}", result.new_key.secret);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn rotate_api_key_with_options(
+        &self,
+        id: impl AsRef<str>,
+        request: RotateApiKeyRequest,
+    ) -> Result<RotateApiKeyResponse> {
+        let id = id.as_ref();
+        if id.is_empty() {
+            return Err(Error::Validation {
+                message: "API key ID is required".to_string(),
+            });
+        }
+        let path = format!("/account/keys/{}/rotate", id);
+        let response = self.client.post(&path, &request).await?;
+        let result: RotateApiKeyResponse = response.json().await?;
+        Ok(result)
     }
 }

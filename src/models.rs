@@ -252,6 +252,137 @@ impl SendMessageRequest {
     }
 }
 
+/// Request to send a group MMS to 2-8 recipients (US/Canada only).
+///
+/// Group messaging is an A2P 10DLC capability: the sending number must be an
+/// MMS-enabled, 10DLC-registered number you own. Construct with
+/// [`SendGroupMessageRequest::new`] and the `with_*` builder methods. This type
+/// is `#[non_exhaustive]`, so external crates must use the constructor rather
+/// than a struct literal.
+#[derive(Debug, Clone, Default, Serialize)]
+#[non_exhaustive]
+pub struct SendGroupMessageRequest {
+    /// 2-8 recipient phone numbers in E.164 format (US/CA MMS-capable mobiles).
+    pub to: Vec<String>,
+    /// Message body. Required unless `media_urls` is provided.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Sending number (E.164). Omit to use your workspace's default sender.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// HTTPS media URLs to attach. Required unless `text` is provided.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mediaUrls")]
+    pub media_urls: Option<Vec<String>>,
+    /// Message type: defaults to "transactional" for group MMS; pass
+    /// "marketing" to apply quiet-hours rules.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "messageType")]
+    pub message_type: Option<MessageType>,
+}
+
+impl SendGroupMessageRequest {
+    /// Creates a new group MMS request for the given recipients.
+    pub fn new(to: Vec<String>) -> Self {
+        Self {
+            to,
+            ..Default::default()
+        }
+    }
+
+    /// Sets the message body.
+    pub fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.text = Some(text.into());
+        self
+    }
+
+    /// Sets the sending number.
+    pub fn with_from(mut self, from: impl Into<String>) -> Self {
+        self.from = Some(from.into());
+        self
+    }
+
+    /// Sets the media URLs to attach.
+    pub fn with_media_urls(mut self, media_urls: Vec<String>) -> Self {
+        self.media_urls = Some(media_urls);
+        self
+    }
+
+    /// Sets the message type (marketing or transactional).
+    pub fn with_message_type(mut self, message_type: MessageType) -> Self {
+        self.message_type = Some(message_type);
+        self
+    }
+}
+
+/// Response from sending a group MMS.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GroupMessageResponse {
+    /// Message identifier (matches the `id` in delivery webhooks).
+    pub id: String,
+    /// Delivery status ("sent" on a live send, "delivered" when simulated).
+    pub status: MessageStatus,
+    /// Recipients the group message was sent to.
+    #[serde(default)]
+    pub to: Vec<String>,
+    /// Identifier for the group conversation (present on live sends).
+    #[serde(default, alias = "groupMessageId")]
+    pub group_message_id: Option<String>,
+    /// True when the send was simulated and nothing was sent to the carrier.
+    #[serde(default)]
+    pub simulated: Option<bool>,
+    /// Human-readable note, present on simulated sends.
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// Request to AI-enhance a draft message. Provide `text`, `message_type`, or
+/// both — at least one is required.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct EnhanceMessageRequest {
+    /// Draft message text to rewrite. Optional if `message_type` is provided
+    /// (the model then generates a suitable message for that type). Only the
+    /// first 500 characters are considered; the result is trimmed to one SMS
+    /// segment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Hint about the kind of message so the rewrite is targeted (e.g.
+    /// "marketing", "transactional"). Optional if `text` is provided.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "messageType")]
+    pub message_type: Option<String>,
+}
+
+impl EnhanceMessageRequest {
+    /// Creates a new, empty enhancement request.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the draft text to rewrite.
+    pub fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.text = Some(text.into());
+        self
+    }
+
+    /// Sets the message-type hint.
+    pub fn with_message_type(mut self, message_type: impl Into<String>) -> Self {
+        self.message_type = Some(message_type.into());
+        self
+    }
+}
+
+/// Result of an AI message enhancement.
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnhanceMessageResponse {
+    /// The rewritten message, capped at 160 characters (one SMS segment). When
+    /// AI enhancement is unavailable, this falls back to the original text.
+    pub enhanced: String,
+    /// Short explanation of what changed. An empty string on the fallback path.
+    #[serde(default)]
+    pub explanation: String,
+    /// The model that produced the enhancement, when available.
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
 /// An uploaded media file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MediaFile {
@@ -846,6 +977,130 @@ impl IntoIterator for BatchList {
     }
 }
 
+// ==================== URL Shortener (branded links) ====================
+
+/// Request to mint a branded short link.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateShortLinkRequest {
+    /// Destination URL to shorten (http/https only).
+    pub url: String,
+}
+
+/// A newly minted branded short link.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateShortLinkResponse {
+    /// Short code (the segment after the domain, e.g. "Ab3xY7").
+    pub code: String,
+    /// Full branded short URL to share (e.g. "https://sendly.live/l/Ab3xY7").
+    #[serde(alias = "shortUrl")]
+    pub short_url: String,
+    /// The destination the short link redirects to.
+    #[serde(alias = "destinationUrl")]
+    pub destination_url: String,
+}
+
+/// A short link with click analytics, as returned by [`ShortLinkListResponse`].
+#[derive(Debug, Clone, Deserialize)]
+pub struct ShortLink {
+    /// Short code (the segment after the domain).
+    pub code: String,
+    /// Full branded short URL.
+    #[serde(alias = "shortUrl")]
+    pub short_url: String,
+    /// The destination the short link redirects to.
+    #[serde(alias = "destinationUrl")]
+    pub destination_url: String,
+    /// Workspace brand slug segment, or `None` when unbranded.
+    #[serde(default, alias = "brandSlug")]
+    pub brand_slug: Option<String>,
+    /// Total human clicks recorded (link-preview bots are excluded).
+    #[serde(default, alias = "clickCount")]
+    pub click_count: i64,
+    /// Whether the link is disabled (the redirect then returns 404).
+    #[serde(default)]
+    pub disabled: bool,
+    /// ISO 3166-1 alpha-2 country of the most recent click, or `None`.
+    #[serde(default, alias = "lastCountry")]
+    pub last_country: Option<String>,
+    /// When the link was last clicked (ISO 8601), or `None`.
+    #[serde(default, alias = "lastClickedAt")]
+    pub last_clicked_at: Option<String>,
+    /// When the link was created (ISO 8601).
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    /// 14-day daily click histogram, oldest first (today last).
+    #[serde(default)]
+    pub spark: Vec<i64>,
+}
+
+/// Response from listing short links.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ShortLinkListResponse {
+    /// The workspace's short links, newest first.
+    #[serde(default)]
+    pub links: Vec<ShortLink>,
+    /// Total number of short links in the workspace.
+    #[serde(default)]
+    pub total: i32,
+}
+
+/// Request to enable or disable a short link.
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateShortLinkRequest {
+    /// New disabled state.
+    pub disabled: bool,
+}
+
+/// Response from enabling or disabling a short link.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateShortLinkResponse {
+    /// Short code that was updated.
+    pub code: String,
+    /// New disabled state.
+    pub disabled: bool,
+}
+
+/// Options for listing short links.
+#[derive(Debug, Clone, Default)]
+pub struct ListShortLinksOptions {
+    /// Maximum links to return (default: 50, max: 200).
+    pub limit: Option<u32>,
+    /// Number of links to skip.
+    pub offset: Option<u32>,
+}
+
+impl ListShortLinksOptions {
+    /// Creates new default options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the limit.
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit.min(200));
+        self
+    }
+
+    /// Sets the offset.
+    pub fn offset(mut self, offset: u32) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
+    pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+
+        if let Some(limit) = self.limit {
+            params.push(("limit".to_string(), limit.to_string()));
+        }
+        if let Some(offset) = self.offset {
+            params.push(("offset".to_string(), offset.to_string()));
+        }
+
+        params
+    }
+}
+
 // ==================== Webhook Types ====================
 
 /// Circuit breaker state for webhooks.
@@ -1301,7 +1556,7 @@ pub struct ApiKey {
     #[serde(default)]
     pub name: String,
     /// Key prefix for identification.
-    #[serde(default)]
+    #[serde(default, alias = "keyPrefix")]
     pub prefix: String,
     /// Last time the key was used.
     #[serde(default, alias = "lastUsedAt")]
@@ -1336,6 +1591,60 @@ pub struct CreateApiKeyRequest {
     /// Optional expiration date.
     #[serde(skip_serializing_if = "Option::is_none", rename = "expires_at")]
     pub expires_at: Option<String>,
+}
+
+/// Request to rotate an API key.
+///
+/// Build with [`RotateApiKeyRequest::new`] and optionally
+/// [`RotateApiKeyRequest::grace_period_hours`].
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RotateApiKeyRequest {
+    /// Hours the old key keeps working after rotation, 24-168 inclusive.
+    /// Omit to use the API default of 24.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "gracePeriodHours")]
+    pub grace_period_hours: Option<u32>,
+}
+
+impl RotateApiKeyRequest {
+    /// Creates a new rotation request with the default grace period.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the grace period (24-168 hours) the old key keeps working.
+    pub fn grace_period_hours(mut self, hours: u32) -> Self {
+        self.grace_period_hours = Some(hours);
+        self
+    }
+}
+
+/// A rotated (newly issued) API key: every [`ApiKey`] field plus the one-time
+/// raw secret and a caution to store it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RotatedApiKey {
+    /// All standard API key fields (id, name, prefix, timestamps, …).
+    #[serde(flatten)]
+    pub key_info: ApiKey,
+    /// The raw new secret (`sk_…`). Shown only once — store it now.
+    #[serde(rename = "key")]
+    pub secret: String,
+    /// Human-readable caution about the one-time secret.
+    #[serde(default)]
+    pub warning: String,
+}
+
+/// Response from rotating an API key (see [`AccountResource::rotate_api_key`]).
+#[derive(Debug, Clone, Deserialize)]
+pub struct RotateApiKeyResponse {
+    /// The newly issued key, including its one-time raw secret and a warning.
+    #[serde(alias = "newKey")]
+    pub new_key: RotatedApiKey,
+    /// The predecessor key, now counting down its grace period.
+    #[serde(alias = "oldKey")]
+    pub old_key: ApiKey,
+    /// Human-readable summary (e.g. when the old key expires).
+    #[serde(default)]
+    pub message: String,
 }
 
 /// Account verification status.

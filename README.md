@@ -218,7 +218,11 @@ println!("Credits used: {}", batch.credits_used);
 let status = client.messages().get_batch("batch_xxx").await?;
 
 // List all batches
-let batches = client.messages().list_batches(None).await?;
+let messages = client.messages();
+let batches = messages.list_batches(None).await?;
+for batch in batches {
+    println!("{}: {:?}", batch.batch_id, batch.status);
+}
 
 // Preview batch (dry run) - validates without sending
 let preview = client.messages().preview_batch(SendBatchRequest {
@@ -331,6 +335,133 @@ println!("New key: {:?}", new_key.key); // Only shown once!
 
 // Revoke an API key
 client.account().revoke_api_key("key_xxx").await?;
+
+// Rotate an API key — issues a new key and keeps the old one working for a
+// grace period (default 24h, 24-168) so you can roll callers over with no downtime
+let rotated = client.account().rotate_api_key("key_xxx").await?;
+println!("New key: {}", rotated.new_key.secret); // shown once — store it now!
+println!("{}", rotated.message);                 // "Old key will expire in 24 hours"
+
+// ...or with a custom grace period
+use sendly::RotateApiKeyRequest;
+let rotated = client.account()
+    .rotate_api_key_with_options("key_xxx", RotateApiKeyRequest::new().grace_period_hours(72))
+    .await?;
+```
+
+## Numbers
+
+Discover, buy, and manage the phone numbers you own.
+
+```rust
+use sendly::{Sendly, ListAvailableNumbersOptions, BuyNumberRequest, UpdateNumberRequest};
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+// Browse countries and search available numbers (already priced for your account)
+let countries = client.numbers().list_countries().await?;
+let available = client.numbers()
+    .list_available(ListAvailableNumbersOptions::new("US", "local"))
+    .await?;
+
+// Buy a number (asynchronous — see the numbers docs for documents/payment hand-offs)
+let first = &available.numbers[0];
+let result = client.numbers().buy(BuyNumberRequest::new(
+    &first.phone_number, &first.country, &first.number_type, &first.monthly_cost,
+)).await?;
+println!("Buy status: {}", result.status);
+
+// List the numbers you own
+let owned = client.numbers().list().await?;
+for n in &owned.numbers {
+    println!("{} — {}", n.phone_number, n.status);
+}
+
+// Get one by id (includes `is_default`, which list omits)
+let number = client.numbers().get("num_xxx").await?;
+println!("default sender: {:?}", number.is_default);
+
+// Make a number the workspace default sender (the number must be active)
+let updated = client.numbers().update("num_xxx", UpdateNumberRequest::new().make_default()).await?;
+
+// Cancel a previously scheduled release ("keep this number")
+client.numbers().update("num_xxx", UpdateNumberRequest::new().keep()).await?;
+
+// Release a number. A live paid purchase is cancelled at the end of the paid
+// period; everything else is released immediately.
+let released = client.numbers().release("num_xxx").await?;
+if released.scheduled == Some(true) {
+    println!("Releases at {:?}", released.scheduled_release_at);
+} else {
+    println!("Released");
+}
+```
+
+## Group MMS
+
+Send a group MMS to 2-8 US/Canada recipients. Every recipient sees the others and
+replies fan out to the whole group. Requires an MMS-enabled, 10DLC-registered sender.
+
+```rust
+use sendly::{Sendly, SendGroupMessageRequest};
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+let group = client.messages().send_group(
+    SendGroupMessageRequest::new(vec![
+        "+14155551234".to_string(),
+        "+14155555678".to_string(),
+    ])
+    .with_text("Hey team — quick sync at noon?"),
+).await?;
+
+println!("Group message: {} ({})", group.id, group.status);
+println!("Group id: {:?}", group.group_message_id);
+```
+
+## AI Enhance
+
+Rewrite a draft into a single polished SMS segment, with a short explanation.
+
+```rust
+use sendly::{Sendly, EnhanceMessageRequest};
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+let result = client.messages().enhance(
+    EnhanceMessageRequest::new()
+        .with_text("hey come check out our sale this weekend")
+        .with_message_type("marketing"),
+).await?;
+
+println!("{}", result.enhanced);
+println!("{}", result.explanation);
+```
+
+## Links
+
+Mint branded short links, list them with click analytics, and disable an individual
+link (a per-link kill switch). Gated behind the `url_shortener` rollout flag — while
+the flag is off, these calls resolve as `Error::NotFound`.
+
+```rust
+use sendly::{Sendly, ListShortLinksOptions};
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+// Shorten a URL
+let link = client.links().create("https://example.com/spring-sale").await?;
+println!("{} -> {}", link.short_url, link.destination_url);
+
+// List your links with click counts
+let listing = client.links().list(Some(ListShortLinksOptions::new().limit(50))).await?;
+for l in &listing.links {
+    println!("{} ({} clicks)", l.short_url, l.click_count);
+}
+
+// Disable / re-enable a link (its redirect returns 404 while disabled)
+client.links().disable(&link.code).await?;
+client.links().enable(&link.code).await?;
 ```
 
 ## Error Handling
@@ -377,9 +508,9 @@ message.to           // Recipient phone number
 message.text         // Message content
 message.status       // MessageStatus enum
 message.credits_used // Credits consumed
-message.created_at   // DateTime<Utc>
-message.updated_at   // DateTime<Utc>
-message.delivered_at // Option<DateTime<Utc>>
+message.created_at   // Option<String>
+message.updated_at   // Option<String>
+message.delivered_at // Option<String>
 message.error_code   // Option<String>
 message.error_message // Option<String>
 
@@ -394,7 +525,6 @@ message.is_pending()   // bool
 | Status | Description |
 |--------|-------------|
 | `Queued` | Message is queued for delivery |
-| `Sending` | Message is being sent |
 | `Sent` | Message was sent to carrier |
 | `Delivered` | Message was delivered |
 | `Failed` | Message delivery failed |
