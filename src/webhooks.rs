@@ -82,6 +82,38 @@ pub enum WebhookEventType {
     ContactsLookupCompleted,
     #[serde(rename = "contacts.bulk_marked_valid")]
     ContactsBulkMarkedValid,
+    #[serde(rename = "brand.verified")]
+    BrandVerified,
+    #[serde(rename = "brand.failed")]
+    BrandFailed,
+    #[serde(rename = "campaign.approved")]
+    CampaignApproved,
+    #[serde(rename = "campaign.rejected")]
+    CampaignRejected,
+    #[serde(rename = "campaign.suspended")]
+    CampaignSuspended,
+    #[serde(rename = "assignment.confirmed")]
+    AssignmentConfirmed,
+    #[serde(rename = "assignment.failed")]
+    AssignmentFailed,
+    #[serde(rename = "port.completed")]
+    PortCompleted,
+    #[serde(rename = "port_out.requested")]
+    PortOutRequested,
+    #[serde(rename = "port_out.completed")]
+    PortOutCompleted,
+    #[serde(rename = "port_out.rejected")]
+    PortOutRejected,
+    #[serde(rename = "port_out.cancelled")]
+    PortOutCancelled,
+    #[serde(rename = "number.activated")]
+    NumberActivated,
+    #[serde(rename = "number.failed")]
+    NumberFailed,
+    #[serde(rename = "number.requirements_required")]
+    NumberRequirementsRequired,
+    #[serde(rename = "number.released")]
+    NumberReleased,
 }
 
 /// Source of a list-health event. Frozen enum — new values will be
