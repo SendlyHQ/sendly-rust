@@ -464,6 +464,75 @@ client.links().disable(&link.code).await?;
 client.links().enable(&link.code).await?;
 ```
 
+## WhatsApp
+
+Connect a number you own to WhatsApp ($19 one-time, no monthly fee), create
+Meta-reviewed templates, and send. Free-form text and media only deliver inside
+an open 24-hour customer-service window; an approved template works anytime.
+
+```rust
+use sendly::{
+    Sendly, SendWhatsAppMessageRequest, CreateWhatsAppTemplateRequest,
+    WhatsAppTemplateCategory, WhatsAppTemplateSendParams,
+};
+use std::collections::HashMap;
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+// Connect a number — the connect URL must be opened by a human, who logs in
+// with Facebook to link their WhatsApp Business Account
+let signup = client.whatsapp().signup().create("+15559876543").await?;
+println!("Have your user open: {}", signup.connect_url);
+
+// Poll until active
+let status = client.whatsapp().signup().get(&signup.id).await?;
+
+// List your WhatsApp senders
+let senders = client.whatsapp().senders().list().await?;
+for s in &senders.senders {
+    println!("{} — {:?}", s.phone_number, s.status);
+}
+
+// Create a template (Meta reviews it, usually 24-48h)
+let mut examples = HashMap::new();
+examples.insert("1".to_string(), "Sam".to_string());
+examples.insert("2".to_string(), "#4821".to_string());
+let template = client.whatsapp().templates().create(
+    CreateWhatsAppTemplateRequest::new(
+        "+15559876543",
+        "order_shipped",
+        "en_US",
+        WhatsAppTemplateCategory::Utility,
+        "Hi {{1}}, your order {{2}} has shipped!",
+    )
+    .examples(examples),
+).await?;
+
+// Check the 24-hour window, then send
+let window = client.whatsapp().window("+15559876543", "+15551234567").await?;
+
+if window.open {
+    // Free-form text (or media with a caption via .with_media_urls())
+    client.messages().send_whatsapp(
+        SendWhatsAppMessageRequest::new("+15551234567", "+15559876543")
+            .with_text("Your table is ready!"),
+    ).await?;
+} else {
+    // Approved template — works regardless of the window
+    let mut variables = HashMap::new();
+    variables.insert("1".to_string(), "Sam".to_string());
+    variables.insert("2".to_string(), "#4821".to_string());
+    let message = client.messages().send_whatsapp(
+        SendWhatsAppMessageRequest::new("+15551234567", "+15559876543")
+            .with_template(
+                WhatsAppTemplateSendParams::new("order_shipped", "en_US")
+                    .with_variables(variables),
+            ),
+    ).await?;
+    println!("Kind: {:?}", message.whatsapp.kind);
+}
+```
+
 ## Error Handling
 
 ```rust

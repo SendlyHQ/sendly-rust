@@ -19,6 +19,7 @@ use crate::templates::TemplatesResource;
 use crate::tendlc::TenDlcResource;
 use crate::verify::VerifyResource;
 use crate::webhook_resource::WebhooksResource;
+use crate::whatsapp::WhatsAppResource;
 
 /// Default API base URL.
 pub const DEFAULT_BASE_URL: &str = "https://sendly.live/api/v1";
@@ -227,6 +228,11 @@ impl Sendly {
     /// Returns the BusinessUpgrade resource.
     pub fn business_upgrade(&self) -> BusinessUpgradeResource {
         BusinessUpgradeResource::new(self)
+    }
+
+    /// Returns the WhatsApp resource.
+    pub fn whatsapp(&self) -> WhatsAppResource {
+        WhatsAppResource::new(self)
     }
 
     /// Makes a GET request.

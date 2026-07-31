@@ -8,7 +8,7 @@ use crate::models::{
     EnhanceMessageRequest, EnhanceMessageResponse, GroupMessageResponse, ListBatchesOptions,
     ListMessagesOptions, ListScheduledMessagesOptions, Message, MessageList, ScheduleMessageRequest,
     ScheduledMessage, ScheduledMessageList, SendBatchRequest, SendGroupMessageRequest,
-    SendMessageRequest,
+    SendMessageRequest, SendWhatsAppMessageRequest, WhatsAppMessage,
 };
 
 static PHONE_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -61,6 +61,70 @@ impl<'a> Messages<'a> {
 
         let response = self.client.post("/messages", &request).await?;
         let message: Message = response.json().await?;
+
+        Ok(message)
+    }
+
+    /// Sends a WhatsApp message.
+    ///
+    /// Requires a live API key and a `from` number with an active WhatsApp
+    /// connection (see `client.whatsapp().signup()`). Free-form `text` and
+    /// media only deliver inside an open 24-hour customer-service window —
+    /// outside it, send an approved `template` instead (check with
+    /// `client.whatsapp().window(from, to)`).
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - WhatsApp message details
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{Sendly, SendWhatsAppMessageRequest, WhatsAppTemplateSendParams};
+    /// use std::collections::HashMap;
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// // Free-form reply inside an open 24h window
+    /// let message = client.messages().send_whatsapp(
+    ///     SendWhatsAppMessageRequest::new("+15551234567", "+15559876543")
+    ///         .with_text("Your table is ready!"),
+    /// ).await?;
+    ///
+    /// // Template send — works regardless of the window
+    /// let mut variables = HashMap::new();
+    /// variables.insert("1".to_string(), "Acme Inc".to_string());
+    /// variables.insert("2".to_string(), "#4821".to_string());
+    /// let message = client.messages().send_whatsapp(
+    ///     SendWhatsAppMessageRequest::new("+15551234567", "+15559876543")
+    ///         .with_template(
+    ///             WhatsAppTemplateSendParams::new("order_shipped", "en_US")
+    ///                 .with_variables(variables),
+    ///         ),
+    /// ).await?;
+    ///
+    /// println!("Kind: {:?}", message.whatsapp.kind);
+    /// println!("Credits: {}", message.credits_used);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_whatsapp(
+        &self,
+        request: SendWhatsAppMessageRequest,
+    ) -> Result<WhatsAppMessage> {
+        validate_phone(&request.to)?;
+        validate_phone(&request.from)?;
+        let has_media = request.media_urls.as_ref().map_or(false, |u| !u.is_empty());
+        let has_text = request.text.as_ref().map_or(false, |t| !t.is_empty());
+        if !has_text && !has_media && request.template.is_none() {
+            return Err(Error::Validation {
+                message: "Provide 'text', 'media_urls', or 'template'".to_string(),
+            });
+        }
+
+        let response = self.client.post("/messages", &request).await?;
+        let message: WhatsAppMessage = response.json().await?;
 
         Ok(message)
     }

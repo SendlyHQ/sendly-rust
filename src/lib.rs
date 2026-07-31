@@ -75,6 +75,7 @@ mod templates;
 mod tendlc;
 mod verify;
 mod webhook_resource;
+mod whatsapp;
 
 pub mod webhooks;
 
@@ -98,3 +99,4 @@ pub use templates::*;
 pub use tendlc::*;
 pub use verify::*;
 pub use webhook_resource::WebhooksResource;
+pub use whatsapp::*;

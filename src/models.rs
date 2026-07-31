@@ -3505,3 +3505,230 @@ pub struct SuggestRepliesResponse {
     #[serde(default)]
     pub model: Option<String>,
 }
+
+/// Variable values for one dynamic-URL button on an approved WhatsApp
+/// template.
+#[derive(Debug, Clone, Serialize)]
+pub struct WhatsAppTemplateButtonVariables {
+    /// Zero-based index of the button on the approved template.
+    pub index: u32,
+    /// Values for the button's URL placeholders, keyed by placeholder
+    /// number: `{ "1": "4821" }`.
+    pub variables: std::collections::HashMap<String, String>,
+}
+
+/// The approved WhatsApp template to send, with its variable values.
+#[derive(Debug, Clone, Serialize)]
+pub struct WhatsAppTemplateSendParams {
+    /// Template name as approved (e.g. "order_shipped").
+    pub name: String,
+    /// Template language code (e.g. "en_US") — must match the approved
+    /// template's language exactly.
+    pub language: String,
+    /// Body variable values keyed by placeholder number:
+    /// `{ "1": "Acme Inc", "2": "#4821" }`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variables: Option<std::collections::HashMap<String, String>>,
+    /// Variable values for dynamic-URL buttons.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buttons: Option<Vec<WhatsAppTemplateButtonVariables>>,
+}
+
+impl WhatsAppTemplateSendParams {
+    /// Creates template send params for the given approved template.
+    pub fn new(name: impl Into<String>, language: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            language: language.into(),
+            variables: None,
+            buttons: None,
+        }
+    }
+
+    /// Sets the body variable values.
+    pub fn with_variables(
+        mut self,
+        variables: std::collections::HashMap<String, String>,
+    ) -> Self {
+        self.variables = Some(variables);
+        self
+    }
+
+    /// Sets the variable values for dynamic-URL buttons.
+    pub fn with_buttons(mut self, buttons: Vec<WhatsAppTemplateButtonVariables>) -> Self {
+        self.buttons = Some(buttons);
+        self
+    }
+}
+
+/// Request to send a WhatsApp message.
+///
+/// Provide exactly one of:
+/// - `text` — free-form text; only deliverable inside an open 24-hour
+///   customer-service window (the recipient messaged you in the last 24h)
+/// - `media_urls` — a single media attachment (optional `text` becomes its
+///   caption); also window-bound
+/// - `template` — an approved template; works regardless of the window
+///
+/// WhatsApp sends require a live API key and a `from` number that has been
+/// connected to WhatsApp (see `client.whatsapp().signup()`).
+///
+/// Construct with [`SendWhatsAppMessageRequest::new`] and the `with_*`
+/// builder methods. This type is `#[non_exhaustive]`, so external crates
+/// must use the constructor rather than a struct literal.
+#[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
+pub struct SendWhatsAppMessageRequest {
+    channel: &'static str,
+    /// Destination phone number in E.164 format (e.g., +15551234567).
+    pub to: String,
+    /// Sending number in E.164 format. Required — must be one of your
+    /// numbers with an active WhatsApp connection.
+    pub from: String,
+    /// Free-form message text (max 4096 bytes), or the caption when
+    /// `media_urls` is provided (max 1024 bytes). Requires an open 24-hour
+    /// window — outside it the API responds 422 `whatsapp_window_closed`;
+    /// send a `template` instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Media attachment URL. WhatsApp accepts exactly one per message.
+    /// Must be a publicly accessible HTTPS URL.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mediaUrls")]
+    pub media_urls: Option<Vec<String>>,
+    /// Approved template to send. Works regardless of the 24-hour window.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<WhatsAppTemplateSendParams>,
+    /// Custom JSON metadata to attach to the message (max 4KB).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+impl SendWhatsAppMessageRequest {
+    /// Creates a new WhatsApp send request for the given recipient and
+    /// WhatsApp-connected sending number.
+    pub fn new(to: impl Into<String>, from: impl Into<String>) -> Self {
+        Self {
+            channel: "whatsapp",
+            to: to.into(),
+            from: from.into(),
+            text: None,
+            media_urls: None,
+            template: None,
+            metadata: None,
+        }
+    }
+
+    /// Sets the free-form text (or the media caption when `media_urls` is
+    /// also set).
+    pub fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.text = Some(text.into());
+        self
+    }
+
+    /// Sets the media attachment URL (WhatsApp accepts exactly one).
+    pub fn with_media_urls(mut self, media_urls: Vec<String>) -> Self {
+        self.media_urls = Some(media_urls);
+        self
+    }
+
+    /// Sets the approved template to send.
+    pub fn with_template(mut self, template: WhatsAppTemplateSendParams) -> Self {
+        self.template = Some(template);
+        self
+    }
+
+    /// Sets custom metadata to attach to the message.
+    pub fn with_metadata(
+        mut self,
+        metadata: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+}
+
+/// What kind of WhatsApp message was sent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WhatsAppMessageKind {
+    /// Free-form text.
+    Text,
+    /// Media attachment (with optional caption).
+    Media,
+    /// Approved template.
+    Template,
+}
+
+/// Billing category of a sent WhatsApp template (Meta reviews and may
+/// reclassify templates; the category on the send response is what was
+/// billed).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WhatsAppMessageCategory {
+    Marketing,
+    Utility,
+    Authentication,
+}
+
+/// The template that was sent (template sends only).
+#[derive(Debug, Clone, Deserialize)]
+pub struct WhatsAppMessageTemplateInfo {
+    /// Template name.
+    pub name: String,
+    /// Template language code.
+    pub language: String,
+    /// Billed category.
+    pub category: WhatsAppMessageCategory,
+}
+
+/// WhatsApp-specific details on a sent message.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WhatsAppMessageDetails {
+    /// What was sent: free-form text, media, or a template.
+    pub kind: WhatsAppMessageKind,
+    /// The template that was sent (template sends only).
+    #[serde(default)]
+    pub template: Option<WhatsAppMessageTemplateInfo>,
+    /// WhatsApp message id — `None` until the first delivery report lands;
+    /// populated on the message record afterwards.
+    #[serde(default, alias = "messageId")]
+    pub message_id: Option<String>,
+}
+
+/// A sent WhatsApp message.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WhatsAppMessage {
+    /// Unique message identifier.
+    pub id: String,
+    /// Always "whatsapp".
+    #[serde(default)]
+    pub channel: String,
+    /// Always "whatsapp".
+    #[serde(default)]
+    pub message_format: String,
+    /// Destination phone number.
+    pub to: String,
+    /// Sending number.
+    pub from: String,
+    /// Body text for free-form text sends; `None` for template and media
+    /// sends.
+    #[serde(default)]
+    pub text: Option<String>,
+    /// Current delivery status.
+    pub status: MessageStatus,
+    /// Always 1 — WhatsApp has no segment concept.
+    #[serde(default = "default_segments")]
+    pub segments: i32,
+    /// Credits charged for this message (priced by destination country and
+    /// category).
+    #[serde(default, alias = "creditsUsed")]
+    pub credits_used: i32,
+    /// WhatsApp-specific details.
+    pub whatsapp: WhatsAppMessageDetails,
+    /// ISO 8601 timestamp when the message was created.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    /// Custom JSON metadata attached to the message.
+    #[serde(default)]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
