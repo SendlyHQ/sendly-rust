@@ -6,9 +6,10 @@ use crate::error::{Error, Result};
 use crate::models::{
     BatchList, BatchMessageResponse, BatchPreviewResponse, CancelScheduledMessageResponse,
     EnhanceMessageRequest, EnhanceMessageResponse, GroupMessageResponse, ListBatchesOptions,
-    ListMessagesOptions, ListScheduledMessagesOptions, Message, MessageList, ScheduleMessageRequest,
-    ScheduledMessage, ScheduledMessageList, SendBatchRequest, SendGroupMessageRequest,
-    SendMessageRequest, SendWhatsAppMessageRequest, WhatsAppMessage,
+    ListMessagesOptions, ListScheduledMessagesOptions, Message, MessageList, RcsMessage,
+    ScheduleMessageRequest, ScheduledMessage, ScheduledMessageList, SendBatchRequest,
+    SendGroupMessageRequest, SendMessageRequest, SendRcsMessageRequest, SendWhatsAppMessageRequest,
+    WhatsAppMessage,
 };
 
 static PHONE_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -125,6 +126,80 @@ impl<'a> Messages<'a> {
 
         let response = self.client.post("/messages", &request).await?;
         let message: WhatsAppMessage = response.json().await?;
+
+        Ok(message)
+    }
+
+    /// Sends an RCS message: rich text with optional tappable chips, or a
+    /// standalone rich card.
+    ///
+    /// Requires a live API key and a sendable RCS agent on the workspace
+    /// (see `client.rcs().agents()`). When the recipient's device or network
+    /// doesn't support RCS, text sends fall back to plain SMS (billed as
+    /// SMS) — [`RcsMessage::fell_back_to_sms`] reports which leg delivered.
+    /// Cards have no SMS form and never fall back.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - RCS message details
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{RcsCard, RcsSuggestion, SendRcsMessageRequest, Sendly};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// // Text with tappable chips — falls back to SMS if the recipient
+    /// // has no RCS support (the chips are dropped on the fallback).
+    /// let message = client.messages().send_rcs(
+    ///     SendRcsMessageRequest::new("+15551234567")
+    ///         .with_text("Your order #4821 has shipped!")
+    ///         .with_suggestions(vec![
+    ///             RcsSuggestion::reply("Track it", "track_4821"),
+    ///             RcsSuggestion::action(
+    ///                 "View receipt",
+    ///                 "receipt_4821",
+    ///                 "https://example.com/receipts/4821",
+    ///             ),
+    ///         ]),
+    /// ).await?;
+    ///
+    /// if message.fell_back_to_sms() {
+    ///     println!("delivered as SMS");
+    /// } else {
+    ///     println!("delivered over RCS from {:?}", message.rcs.agent_name);
+    /// }
+    ///
+    /// // A rich card — never falls back.
+    /// let card = client.messages().send_rcs(
+    ///     SendRcsMessageRequest::new("+15551234567").with_card(
+    ///         RcsCard::new("Your table is ready", "We'll hold it for 10 minutes.")
+    ///             .with_media_url("https://example.com/table.jpg"),
+    ///     ),
+    /// ).await?;
+    ///
+    /// println!("Kind: {:?}", card.rcs.kind);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_rcs(&self, request: SendRcsMessageRequest) -> Result<RcsMessage> {
+        validate_phone(&request.to)?;
+        let has_text = request.text.as_ref().map_or(false, |t| !t.is_empty());
+        if has_text == request.card.is_some() {
+            return Err(Error::Validation {
+                message: "Provide exactly one of 'text' or 'card'".to_string(),
+            });
+        }
+        if request.card.is_some() && request.suggestions.is_some() {
+            return Err(Error::Validation {
+                message: "'suggestions' ride on text messages — put card buttons in the card's suggestions".to_string(),
+            });
+        }
+
+        let response = self.client.post("/messages", &request).await?;
+        let message: RcsMessage = response.json().await?;
 
         Ok(message)
     }

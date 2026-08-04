@@ -10,6 +10,9 @@ pub enum MessageStatus {
     Sent,
     /// Message was delivered.
     Delivered,
+    /// Recipient read the message. Read receipts exist on RCS and WhatsApp
+    /// only — SMS never reports one.
+    Read,
     /// Message delivery failed.
     Failed,
     /// Message bounced (carrier rejected).
@@ -24,6 +27,7 @@ impl std::fmt::Display for MessageStatus {
             MessageStatus::Queued => write!(f, "queued"),
             MessageStatus::Sent => write!(f, "sent"),
             MessageStatus::Delivered => write!(f, "delivered"),
+            MessageStatus::Read => write!(f, "read"),
             MessageStatus::Failed => write!(f, "failed"),
             MessageStatus::Bounced => write!(f, "bounced"),
             MessageStatus::Retrying => write!(f, "retrying"),
@@ -3731,4 +3735,316 @@ pub struct WhatsAppMessage {
     /// Custom JSON metadata attached to the message.
     #[serde(default)]
     pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+/// A tappable chip that sends a reply back when tapped.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RcsSuggestedReply {
+    /// Chip label — what the recipient sees, and what they send back.
+    pub text: String,
+    /// Machine-readable payload returned on the inbound reply.
+    pub postback_data: String,
+}
+
+/// A tappable chip that opens a URL when tapped.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RcsSuggestedAction {
+    /// Chip label.
+    pub text: String,
+    /// Machine-readable payload reported when the chip is tapped.
+    pub postback_data: String,
+    /// Link opened when the chip is tapped.
+    pub url: String,
+}
+
+/// A tappable chip on an RCS message: either a reply or a URL action.
+///
+/// Build one with [`RcsSuggestion::reply`] or [`RcsSuggestion::action`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RcsSuggestion {
+    /// Sends `text` back as a reply, carrying `postback_data`.
+    Reply(RcsSuggestedReply),
+    /// Opens `url`.
+    Action(RcsSuggestedAction),
+}
+
+impl RcsSuggestion {
+    /// Creates a reply chip.
+    pub fn reply(text: impl Into<String>, postback_data: impl Into<String>) -> Self {
+        RcsSuggestion::Reply(RcsSuggestedReply {
+            text: text.into(),
+            postback_data: postback_data.into(),
+        })
+    }
+
+    /// Creates a chip that opens a URL.
+    pub fn action(
+        text: impl Into<String>,
+        postback_data: impl Into<String>,
+        url: impl Into<String>,
+    ) -> Self {
+        RcsSuggestion::Action(RcsSuggestedAction {
+            text: text.into(),
+            postback_data: postback_data.into(),
+            url: url.into(),
+        })
+    }
+}
+
+/// Layout of an RCS rich card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RcsCardOrientation {
+    /// Media above the text (the default).
+    Vertical,
+    /// Media beside the text.
+    Horizontal,
+}
+
+/// A standalone RCS rich card: a title and description with an optional
+/// image and tappable chips.
+///
+/// Construct with [`RcsCard::new`] and the `with_*` builder methods.
+#[derive(Debug, Clone, Serialize)]
+pub struct RcsCard {
+    /// Card title. Required.
+    pub title: String,
+    /// Card body text. Required.
+    pub description: String,
+    /// Public JPEG, PNG, or GIF image URL shown on the card.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mediaUrl")]
+    pub media_url: Option<String>,
+    /// Card layout; defaults to vertical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<RcsCardOrientation>,
+    /// Tappable chips on the card.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestions: Option<Vec<RcsSuggestion>>,
+}
+
+impl RcsCard {
+    /// Creates a card with the required title and description.
+    pub fn new(title: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            description: description.into(),
+            media_url: None,
+            orientation: None,
+            suggestions: None,
+        }
+    }
+
+    /// Sets the card image (public JPEG, PNG, or GIF URL).
+    pub fn with_media_url(mut self, media_url: impl Into<String>) -> Self {
+        self.media_url = Some(media_url.into());
+        self
+    }
+
+    /// Sets the card layout.
+    pub fn with_orientation(mut self, orientation: RcsCardOrientation) -> Self {
+        self.orientation = Some(orientation);
+        self
+    }
+
+    /// Sets the card's tappable chips.
+    pub fn with_suggestions(mut self, suggestions: Vec<RcsSuggestion>) -> Self {
+        self.suggestions = Some(suggestions);
+        self
+    }
+}
+
+/// Request to send an RCS message.
+///
+/// Provide exactly one of:
+/// - `text` — rich text; optional tappable `suggestions` ride along
+/// - `card` — a standalone rich card (title and description, with an
+///   optional image and card-level chips)
+///
+/// When the recipient's device or network doesn't support RCS, text sends
+/// fall back to plain SMS (billed as SMS) unless `fallback_to_sms` is set to
+/// `false`; suggestions have no SMS form and are dropped on the fallback.
+/// Cards have no SMS form and never fall back — an unsupported recipient
+/// gets a 422 `rcs_not_supported_for_recipient`.
+///
+/// RCS sends require a live API key and a sendable RCS agent on the
+/// workspace (see `client.rcs().agents()`).
+///
+/// Construct with [`SendRcsMessageRequest::new`] and the `with_*` builder
+/// methods. This type is `#[non_exhaustive]`, so external crates must use
+/// the constructor rather than a struct literal.
+#[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
+pub struct SendRcsMessageRequest {
+    channel: &'static str,
+    /// Destination phone number in E.164 format (e.g., +15551234567).
+    pub to: String,
+    /// RCS agent to send as. Optional when the workspace has exactly one
+    /// sendable agent; required when it has more than one.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "agentId")]
+    pub agent_id: Option<String>,
+    /// Message text. Exactly one of `text` or `card` is required.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Tappable chips riding on a text message. Not valid with `card` —
+    /// put card buttons in [`RcsCard::with_suggestions`] instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestions: Option<Vec<RcsSuggestion>>,
+    /// Rich card to send. Exactly one of `text` or `card` is required.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card: Option<RcsCard>,
+    /// Whether a text send may fall back to SMS for a recipient without RCS
+    /// support. Defaults to `true` when omitted.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "fallbackToSms")]
+    pub fallback_to_sms: Option<bool>,
+    /// Custom JSON metadata to attach to the message (max 4KB).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+impl SendRcsMessageRequest {
+    /// Creates a new RCS send request for the given recipient.
+    pub fn new(to: impl Into<String>) -> Self {
+        Self {
+            channel: "rcs",
+            to: to.into(),
+            agent_id: None,
+            text: None,
+            suggestions: None,
+            card: None,
+            fallback_to_sms: None,
+            metadata: None,
+        }
+    }
+
+    /// Sets the message text.
+    pub fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.text = Some(text.into());
+        self
+    }
+
+    /// Sets the tappable chips riding on a text message.
+    pub fn with_suggestions(mut self, suggestions: Vec<RcsSuggestion>) -> Self {
+        self.suggestions = Some(suggestions);
+        self
+    }
+
+    /// Sets the rich card to send.
+    pub fn with_card(mut self, card: RcsCard) -> Self {
+        self.card = Some(card);
+        self
+    }
+
+    /// Sets the RCS agent to send as.
+    pub fn with_agent_id(mut self, agent_id: impl Into<String>) -> Self {
+        self.agent_id = Some(agent_id.into());
+        self
+    }
+
+    /// Turns the SMS fallback off (`false`) or explicitly on (`true`).
+    pub fn with_fallback_to_sms(mut self, fallback_to_sms: bool) -> Self {
+        self.fallback_to_sms = Some(fallback_to_sms);
+        self
+    }
+
+    /// Sets custom metadata to attach to the message.
+    pub fn with_metadata(
+        mut self,
+        metadata: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+}
+
+/// What was sent over RCS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RcsMessageKind {
+    /// Rich text (with optional chips).
+    Text,
+    /// Standalone rich card.
+    Card,
+}
+
+/// RCS-specific details on a sent message.
+///
+/// On an RCS delivery, `kind` and `agent_name` are set. On an SMS fallback,
+/// `requested_channel` is `"rcs"` and `suggestions_dropped` reports whether
+/// chips were dropped on the way out.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RcsMessageDetails {
+    /// What was sent over RCS; `None` on an SMS fallback.
+    #[serde(default)]
+    pub kind: Option<RcsMessageKind>,
+    /// The RCS agent the send was routed through.
+    #[serde(alias = "agentId")]
+    pub agent_id: String,
+    /// Agent name recipients see; `None` on an SMS fallback.
+    #[serde(default, alias = "agentName")]
+    pub agent_name: Option<String>,
+    /// `"rcs"` on an SMS fallback — the channel requested before the
+    /// recipient's RCS support was probed; `None` on an RCS delivery.
+    #[serde(default, alias = "requestedChannel")]
+    pub requested_channel: Option<String>,
+    /// True when the message fell back to SMS and its chips were dropped
+    /// (suggestions have no SMS form).
+    #[serde(default, alias = "suggestionsDropped")]
+    pub suggestions_dropped: bool,
+}
+
+/// A sent RCS message — or the SMS it fell back to.
+///
+/// `channel` reports the leg that actually delivered: `"rcs"` when the
+/// message went out over RCS, `"sms"` when it fell back for a recipient
+/// without RCS support. [`fell_back_to_sms`](Self::fell_back_to_sms) is the
+/// direct check; billing follows the leg (`credits_used` is SMS pricing on
+/// a fallback).
+#[derive(Debug, Clone, Deserialize)]
+pub struct RcsMessage {
+    /// Unique message identifier.
+    pub id: String,
+    /// `"rcs"` on an RCS delivery, `"sms"` on a fallback.
+    #[serde(default)]
+    pub channel: String,
+    /// `"sms"` when the message fell back to SMS; `None` on an RCS delivery.
+    #[serde(default, alias = "fellBackTo")]
+    pub fell_back_to: Option<String>,
+    /// Matches `channel`: `"rcs"` or `"sms"`.
+    #[serde(default)]
+    pub message_format: String,
+    /// Destination phone number.
+    pub to: String,
+    /// RCS agent name, or the SMS sender on a fallback.
+    pub from: String,
+    /// Message text for text sends; `None` for card sends.
+    #[serde(default)]
+    pub text: Option<String>,
+    /// Current delivery status.
+    pub status: MessageStatus,
+    /// 1 on an RCS delivery; the SMS segment count on a fallback.
+    #[serde(default = "default_segments")]
+    pub segments: i32,
+    /// Credits charged — RCS pricing on an RCS delivery, SMS pricing on a
+    /// fallback.
+    #[serde(default, alias = "creditsUsed")]
+    pub credits_used: i32,
+    /// RCS-specific details.
+    pub rcs: RcsMessageDetails,
+    /// ISO 8601 timestamp when the message was created.
+    #[serde(default, alias = "createdAt")]
+    pub created_at: Option<String>,
+    /// Custom JSON metadata attached to the message.
+    #[serde(default)]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+impl RcsMessage {
+    /// True when the recipient had no RCS support and the message was
+    /// delivered as plain SMS instead (billed as SMS).
+    pub fn fell_back_to_sms(&self) -> bool {
+        self.fell_back_to.as_deref() == Some("sms")
+    }
 }

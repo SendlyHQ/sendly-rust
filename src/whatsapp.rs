@@ -121,6 +121,110 @@ pub struct WhatsAppSendersList {
     pub senders: Vec<WhatsAppSender>,
 }
 
+/// The WhatsApp Business profile recipients see for a connected sender —
+/// the details behind your name in the chat.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WhatsAppSenderProfile {
+    /// The sender, in E.164 format.
+    #[serde(alias = "phoneNumber")]
+    pub phone_number: String,
+    /// The name recipients see; `None` until set.
+    #[serde(default, alias = "displayName")]
+    pub display_name: Option<String>,
+    /// Profile photo URL (read-only here — set it in the WhatsApp
+    /// Business app); `None` until set.
+    #[serde(default, alias = "profilePhotoUrl")]
+    pub profile_photo_url: Option<String>,
+    /// Business category; `None` until set.
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Short line under the profile name (max 139 characters); `None`
+    /// until set.
+    #[serde(default)]
+    pub about: Option<String>,
+    /// Longer business description (max 512 characters); `None` until set.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Public contact email; `None` until set.
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Public website URL; `None` until set.
+    #[serde(default)]
+    pub website: Option<String>,
+    /// Public business address; `None` until set.
+    #[serde(default)]
+    pub address: Option<String>,
+}
+
+/// Request body for [`WhatsAppSendersResource::update_profile`]. Supply only
+/// the fields to change — at least one is required; omitted fields keep
+/// their current value.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct UpdateWhatsAppSenderProfileRequest {
+    /// Replacement display name.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "displayName")]
+    pub display_name: Option<String>,
+    /// Replacement short line under the profile name (max 139 characters).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about: Option<String>,
+    /// Replacement business description (max 512 characters).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Replacement business category.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Replacement public contact email.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// Replacement public website URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub website: Option<String>,
+    /// Replacement public business address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+}
+
+impl UpdateWhatsAppSenderProfileRequest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn display_name(mut self, display_name: impl Into<String>) -> Self {
+        self.display_name = Some(display_name.into());
+        self
+    }
+
+    pub fn about(mut self, about: impl Into<String>) -> Self {
+        self.about = Some(about.into());
+        self
+    }
+
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    pub fn category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
+    }
+
+    pub fn email(mut self, email: impl Into<String>) -> Self {
+        self.email = Some(email.into());
+        self
+    }
+
+    pub fn website(mut self, website: impl Into<String>) -> Self {
+        self.website = Some(website.into());
+        self
+    }
+
+    pub fn address(mut self, address: impl Into<String>) -> Self {
+        self.address = Some(address.into());
+        self
+    }
+}
+
 /// Template category. Meta reviews every template and may reclassify it —
 /// the category on the record is authoritative and drives per-message
 /// pricing.
@@ -407,7 +511,8 @@ impl<'a> WhatsAppSignupResource<'a> {
     }
 }
 
-/// List the numbers connected (or connecting) to WhatsApp.
+/// List the numbers connected (or connecting) to WhatsApp, and manage their
+/// business profiles.
 pub struct WhatsAppSendersResource<'a> {
     client: &'a Sendly,
 }
@@ -424,6 +529,46 @@ impl<'a> WhatsAppSendersResource<'a> {
     /// yet — start one with [`WhatsAppSignupResource::create`].
     pub async fn list(&self) -> Result<WhatsAppSendersList> {
         let response = self.client.get("/whatsapp/senders", &[]).await?;
+        Ok(response.json().await?)
+    }
+
+    /// Get the WhatsApp Business profile recipients see for a connected
+    /// sender (E.164). The number must have an active WhatsApp connection.
+    pub async fn get_profile(&self, phone_number: &str) -> Result<WhatsAppSenderProfile> {
+        let response = self
+            .client
+            .get(
+                &format!(
+                    "/whatsapp/senders/{}/profile",
+                    urlencoding::encode(phone_number)
+                ),
+                &[],
+            )
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    /// Update a connected sender's WhatsApp Business profile and return the
+    /// updated profile.
+    ///
+    /// Supply only the fields to change — at least one is required.
+    /// `about` is capped at 139 characters and `description` at 512.
+    /// Requires a live API key.
+    pub async fn update_profile(
+        &self,
+        phone_number: &str,
+        request: UpdateWhatsAppSenderProfileRequest,
+    ) -> Result<WhatsAppSenderProfile> {
+        let response = self
+            .client
+            .patch(
+                &format!(
+                    "/whatsapp/senders/{}/profile",
+                    urlencoding::encode(phone_number)
+                ),
+                &request,
+            )
+            .await?;
         Ok(response.json().await?)
     }
 }

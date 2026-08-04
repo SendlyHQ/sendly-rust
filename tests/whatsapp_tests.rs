@@ -2,9 +2,10 @@ mod common;
 
 use common::{create_test_client, setup_mock_server, TEST_API_KEY};
 use sendly::{
-    CreateWhatsAppTemplateRequest, Error, UpdateWhatsAppTemplateRequest, WhatsAppSenderStatus,
-    WhatsAppSignupStatus, WhatsAppTemplateButton, WhatsAppTemplateButtonType,
-    WhatsAppTemplateCategory, WhatsAppTemplateStatus,
+    CreateWhatsAppTemplateRequest, Error, UpdateWhatsAppSenderProfileRequest,
+    UpdateWhatsAppTemplateRequest, WhatsAppSenderStatus, WhatsAppSignupStatus,
+    WhatsAppTemplateButton, WhatsAppTemplateButtonType, WhatsAppTemplateCategory,
+    WhatsAppTemplateStatus,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -208,6 +209,183 @@ async fn test_senders_list_empty() {
 
     assert!(result.is_ok());
     assert!(result.unwrap().senders.is_empty());
+}
+
+// ==================== senders().get_profile() Tests ====================
+
+#[tokio::test]
+async fn test_senders_get_profile_success() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/whatsapp/senders/%2B15559876543/profile"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "phoneNumber": "+15559876543",
+            "displayName": "Acme Inc",
+            "profilePhotoUrl": "https://example.com/logo.png",
+            "category": "Retail",
+            "about": "Family-run since 1998",
+            "description": "Order updates and support over WhatsApp.",
+            "email": "support@example.com",
+            "website": "https://example.com",
+            "address": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .whatsapp()
+        .senders()
+        .get_profile("+15559876543")
+        .await;
+
+    assert!(result.is_ok());
+    let profile = result.unwrap();
+    assert_eq!(profile.phone_number, "+15559876543");
+    assert_eq!(profile.display_name.as_deref(), Some("Acme Inc"));
+    assert_eq!(
+        profile.profile_photo_url.as_deref(),
+        Some("https://example.com/logo.png")
+    );
+    assert_eq!(profile.category.as_deref(), Some("Retail"));
+    assert_eq!(profile.about.as_deref(), Some("Family-run since 1998"));
+    assert_eq!(profile.email.as_deref(), Some("support@example.com"));
+    assert!(profile.address.is_none());
+}
+
+#[tokio::test]
+async fn test_senders_get_profile_not_connected() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/whatsapp/senders/%2B15559876543/profile"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "error": "whatsapp_sender_not_connected",
+            "message": "This number isn't connected to WhatsApp yet."
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .whatsapp()
+        .senders()
+        .get_profile("+15559876543")
+        .await;
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        Error::NotFound { message } => assert!(message.contains("isn't connected")),
+        other => panic!("Expected NotFound error, got {:?}", other),
+    }
+}
+
+// ==================== senders().update_profile() Tests ====================
+
+#[tokio::test]
+async fn test_senders_update_profile_success() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("PATCH"))
+        .and(path("/whatsapp/senders/%2B15559876543/profile"))
+        .and(body_json(json!({
+            "about": "Family-run since 1998",
+            "website": "https://example.com"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "phoneNumber": "+15559876543",
+            "displayName": "Acme Inc",
+            "profilePhotoUrl": null,
+            "category": null,
+            "about": "Family-run since 1998",
+            "description": null,
+            "email": null,
+            "website": "https://example.com",
+            "address": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .whatsapp()
+        .senders()
+        .update_profile(
+            "+15559876543",
+            UpdateWhatsAppSenderProfileRequest::new()
+                .about("Family-run since 1998")
+                .website("https://example.com"),
+        )
+        .await;
+
+    assert!(result.is_ok());
+    let profile = result.unwrap();
+    assert_eq!(profile.about.as_deref(), Some("Family-run since 1998"));
+    assert_eq!(profile.website.as_deref(), Some("https://example.com"));
+    assert!(profile.description.is_none());
+}
+
+#[tokio::test]
+async fn test_senders_update_profile_field_too_long() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("PATCH"))
+        .and(path("/whatsapp/senders/%2B15559876543/profile"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": "invalid_request",
+            "message": "Field 'about' must be at most 139 characters."
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .whatsapp()
+        .senders()
+        .update_profile(
+            "+15559876543",
+            UpdateWhatsAppSenderProfileRequest::new().about("x".repeat(200)),
+        )
+        .await;
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        Error::Validation { message } => assert!(message.contains("139 characters")),
+        other => panic!("Expected Validation error, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_senders_update_profile_requires_live_key() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("PATCH"))
+        .and(path("/whatsapp/senders/%2B15559876543/profile"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "error": "whatsapp_requires_live_key",
+            "message": "WhatsApp requires a live API key. Test keys cannot update sender profiles."
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .whatsapp()
+        .senders()
+        .update_profile(
+            "+15559876543",
+            UpdateWhatsAppSenderProfileRequest::new().display_name("Acme Inc"),
+        )
+        .await;
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        Error::Api {
+            status_code,
+            message,
+            ..
+        } => {
+            assert_eq!(status_code, 403);
+            assert!(message.contains("live API key"));
+        }
+        other => panic!("Expected Api error, got {:?}", other),
+    }
 }
 
 // ==================== templates().list() Tests ====================

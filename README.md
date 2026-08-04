@@ -533,6 +533,97 @@ if window.open {
 }
 ```
 
+Every connected sender has a WhatsApp Business profile — the name, photo, and
+business details recipients see when they tap your number. Send only the fields
+you want to change (`about` is capped at 139 characters, `description` at 512):
+
+```rust
+use sendly::UpdateWhatsAppSenderProfileRequest;
+
+let profile = client.whatsapp().senders().get_profile("+15559876543").await?;
+println!("{:?}", profile.display_name);
+
+let updated = client.whatsapp().senders().update_profile(
+    "+15559876543",
+    UpdateWhatsAppSenderProfileRequest::new()
+        .about("Fresh bread, daily.")
+        .description("Family bakery in Austin since 1998.")
+        .email("hello@example.com")
+        .website("https://example.com"),
+).await?;
+```
+
+## RCS
+
+RCS is the branded, rich upgrade to SMS: your verified agent name and logo
+instead of a bare number, plus tappable suggestion chips and rich cards, on
+Android and iOS 18+ handsets. Messages go out through an RCS agent registered
+for your brand — contact support to set one up. RCS requires a live API key.
+
+Text sends fall back to plain SMS automatically when the recipient's device or
+network doesn't support RCS, so one call covers your whole list. The fallback is
+billed as SMS and is visible on the response — `fell_back_to_sms()` is the
+direct check. Cards have no SMS form and never fall back.
+
+```rust
+use sendly::{RcsCard, RcsSuggestion, SendRcsMessageRequest, Sendly};
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+// Find the agents you can send as
+let agents = client.rcs().agents().list().await?;
+for agent in &agents.agents {
+    println!("{}: {} (sendable: {})", agent.id, agent.name, agent.sendable);
+}
+
+// Optional pre-flight — sending handles the fallback on its own.
+// Pass Some(agent_id) when the workspace has more than one agent.
+let capability = client.rcs().capability("+15551234567", None).await?;
+println!("capable: {} {:?}", capability.capable, capability.features);
+
+// Text with tappable chips
+let message = client.messages().send_rcs(
+    SendRcsMessageRequest::new("+15551234567")
+        .with_text("Your order #4821 has shipped!")
+        .with_suggestions(vec![
+            RcsSuggestion::reply("Track it", "track_4821"),
+            RcsSuggestion::action(
+                "View receipt",
+                "receipt_4821",
+                "https://example.com/receipts/4821",
+            ),
+        ]),
+).await?;
+
+if message.fell_back_to_sms() {
+    // Delivered as SMS — chips have no SMS form and were dropped
+    println!("fell back to SMS: {}", message.rcs.suggestions_dropped);
+} else {
+    println!("delivered over RCS from {:?}", message.rcs.agent_name);
+}
+
+// A rich card — an unsupported recipient gets a 422
+// (rcs_not_supported_for_recipient) rather than an SMS
+let card = client.messages().send_rcs(
+    SendRcsMessageRequest::new("+15551234567").with_card(
+        RcsCard::new(
+            "Your table is ready",
+            "Head to the host stand — we'll hold it for 10 minutes.",
+        )
+        .with_media_url("https://example.com/table.jpg")
+        .with_suggestions(vec![RcsSuggestion::reply("On my way", "otw")]),
+    ),
+).await?;
+println!("Kind: {:?}", card.rcs.kind);
+
+// Require RCS delivery — turn the fallback off
+client.messages().send_rcs(
+    SendRcsMessageRequest::new("+15551234567")
+        .with_text("RCS only.")
+        .with_fallback_to_sms(false),
+).await?;
+```
+
 ## Error Handling
 
 ```rust

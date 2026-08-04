@@ -13,6 +13,7 @@ use crate::labels::LabelsResource;
 use crate::links::LinksResource;
 use crate::media::Media;
 use crate::numbers::NumbersResource;
+use crate::rcs::RcsResource;
 use crate::rules::RulesResource;
 use crate::messages::Messages;
 use crate::templates::TemplatesResource;
@@ -233,6 +234,11 @@ impl Sendly {
     /// Returns the WhatsApp resource.
     pub fn whatsapp(&self) -> WhatsAppResource {
         WhatsAppResource::new(self)
+    }
+
+    /// Returns the RCS resource.
+    pub fn rcs(&self) -> RcsResource {
+        RcsResource::new(self)
     }
 
     /// Makes a GET request.
