@@ -83,6 +83,25 @@ let config = SendlyConfig::new()
 let client = Sendly::with_config("sk_live_v1_xxx", config);
 ```
 
+## Idempotency
+
+Every send POST carries an automatically generated `Idempotency-Key`, created once per logical request and reused across the SDK's own retries, so a retry of a request that already reached the API returns the original result instead of sending again. Pass your own key through the `*_with_options` send methods when the guarantee needs to outlive the process, such as a job queue that re-runs after a crash. Repeating a request with the same key within 24 hours returns the original response instead of executing again. Keys are 1-255 printable ASCII characters; `send_batch` attaches no automatic key because the API already deduplicates identical batches by their contents.
+
+```rust
+use sendly::{IdempotentRequestOptions, Sendly, SendMessageRequest};
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+let message = client.messages()
+    .send_with_options(
+        SendMessageRequest::new("+15551234567", "Your order #4821 has shipped!"),
+        IdempotentRequestOptions::new().idempotency_key("order-4821-shipped"),
+    )
+    .await?;
+```
+
+Full details: https://sendly.live/docs/idempotency
+
 ## Messages
 
 ### Send an SMS
