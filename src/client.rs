@@ -26,7 +26,7 @@ use crate::whatsapp::WhatsAppResource;
 pub const DEFAULT_BASE_URL: &str = "https://sendly.live/api/v1";
 
 /// SDK version.
-pub const VERSION: &str = "3.37.1";
+pub const VERSION: &str = "3.38.0";
 
 /// Configuration for the Sendly client.
 #[derive(Debug, Clone)]
