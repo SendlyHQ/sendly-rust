@@ -35,6 +35,10 @@ struct CreditsResponse {
 
 #[derive(Debug, Deserialize)]
 struct ApiKeyListResponse {
+    /// The API answers `{"keys": [...]}`; the other spellings are kept so an
+    /// older or aliased response still decodes.
+    #[serde(default)]
+    keys: Option<Vec<ApiKey>>,
     #[serde(default, alias = "apiKeys")]
     api_keys: Option<Vec<ApiKey>>,
     #[serde(default)]
@@ -173,7 +177,7 @@ impl<'a> AccountResource<'a> {
         options: Option<ListTransactionsOptions>,
     ) -> Result<CreditTransactionList> {
         let query = options.unwrap_or_default().to_query_params();
-        let response = self.client.get("/account/transactions", &query).await?;
+        let response = self.client.get("/credits/transactions", &query).await?;
         let result: CreditTransactionList = response.json().await?;
         Ok(result)
     }
@@ -208,7 +212,11 @@ impl<'a> AccountResource<'a> {
         let response = self.client.get("/account/keys", &[]).await?;
         let result: ApiKeyListResponse = response.json().await?;
 
-        Ok(result.api_keys.or(result.data).unwrap_or_default())
+        Ok(result
+            .keys
+            .or(result.api_keys)
+            .or(result.data)
+            .unwrap_or_default())
     }
 
     /// Creates a new API key.
@@ -271,8 +279,15 @@ impl<'a> AccountResource<'a> {
     pub async fn get_api_key(&self, id: impl AsRef<str>) -> Result<ApiKey> {
         let path = format!("/account/keys/{}", id.as_ref());
         let response = self.client.get(&path, &[]).await?;
-        let result: ApiKeyResponse = response.json().await?;
-        Ok(result.api_key.or(result.data).unwrap_or_default())
+        // The API returns the key object unwrapped; older shapes wrapped it in
+        // apiKey/data, so try those first and fall back to the bare object.
+        let body: serde_json::Value = response.json().await?;
+        if let Ok(result) = serde_json::from_value::<ApiKeyResponse>(body.clone()) {
+            if let Some(key) = result.api_key.or(result.data) {
+                return Ok(key);
+            }
+        }
+        Ok(serde_json::from_value(body).unwrap_or_default())
     }
 
     /// Gets usage statistics for a specific API key.
@@ -307,8 +322,8 @@ impl<'a> AccountResource<'a> {
     ///
     /// * `id` - API key ID
     pub async fn revoke_api_key(&self, id: impl AsRef<str>) -> Result<()> {
-        let path = format!("/account/keys/{}", id.as_ref());
-        self.client.delete(&path).await?;
+        let path = format!("/account/keys/{}/revoke", id.as_ref());
+        self.client.patch(&path, &serde_json::json!({})).await?;
         Ok(())
     }
 

@@ -192,6 +192,39 @@ impl std::fmt::Display for MessageType {
     }
 }
 
+/// Per-call options accepted by the `*_with_options` send methods.
+///
+/// Construct with [`IdempotentRequestOptions::new`] and the builder methods.
+#[derive(Debug, Clone, Default)]
+pub struct IdempotentRequestOptions {
+    /// Idempotency key for this operation (1-255 printable ASCII characters).
+    ///
+    /// The SDK already generates a key per logical request automatically, so
+    /// the server can dedupe the SDK's own timeout retries. Supply your own
+    /// key when you need idempotency across process restarts or your own
+    /// retry loops — repeating a request with the same key within 24 hours
+    /// returns the original response instead of executing again.
+    ///
+    /// Note: a response is cached under the key once the original attempt
+    /// completes, including error responses — retrying a failed request with
+    /// the same key returns the recorded failure; use a fresh key to
+    /// re-execute.
+    pub idempotency_key: Option<String>,
+}
+
+impl IdempotentRequestOptions {
+    /// Creates new default options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the idempotency key.
+    pub fn idempotency_key(mut self, key: impl Into<String>) -> Self {
+        self.idempotency_key = Some(key.into());
+        self
+    }
+}
+
 /// Request to send an SMS message.
 ///
 /// Construct with [`SendMessageRequest::new`] and the `with_*` builder methods.
@@ -797,7 +830,8 @@ pub struct BatchMessageResponse {
     pub status: BatchStatus,
     /// Total messages in batch.
     pub total: i32,
-    /// Messages queued.
+    /// Messages queued (absent on the batch-create response).
+    #[serde(default)]
     pub queued: i32,
     /// Messages sent.
     pub sent: i32,

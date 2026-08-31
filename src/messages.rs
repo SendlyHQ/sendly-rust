@@ -5,9 +5,9 @@ use crate::client::Sendly;
 use crate::error::{Error, Result};
 use crate::models::{
     BatchList, BatchMessageResponse, BatchPreviewResponse, CancelScheduledMessageResponse,
-    EnhanceMessageRequest, EnhanceMessageResponse, GroupMessageResponse, ListBatchesOptions,
-    ListMessagesOptions, ListScheduledMessagesOptions, Message, MessageList, RcsMessage,
-    ScheduleMessageRequest, ScheduledMessage, ScheduledMessageList, SendBatchRequest,
+    EnhanceMessageRequest, EnhanceMessageResponse, GroupMessageResponse, IdempotentRequestOptions,
+    ListBatchesOptions, ListMessagesOptions, ListScheduledMessagesOptions, Message, MessageList,
+    RcsMessage, ScheduleMessageRequest, ScheduledMessage, ScheduledMessageList, SendBatchRequest,
     SendGroupMessageRequest, SendMessageRequest, SendRcsMessageRequest, SendWhatsAppMessageRequest,
     WhatsAppMessage,
 };
@@ -54,13 +54,54 @@ impl<'a> Messages<'a> {
     /// # }
     /// ```
     pub async fn send(&self, request: SendMessageRequest) -> Result<Message> {
+        self.send_with_options(request, IdempotentRequestOptions::new())
+            .await
+    }
+
+    /// Sends an SMS message with per-call options (e.g. an idempotency key).
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The send message request
+    /// * `options` - Per-call options
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{IdempotentRequestOptions, Sendly, SendMessageRequest};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let message = client.messages()
+    ///     .send_with_options(
+    ///         SendMessageRequest::new("+15551234567", "Your order #4821 has shipped!"),
+    ///         IdempotentRequestOptions::new().idempotency_key("order-4821-shipped"),
+    ///     )
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_with_options(
+        &self,
+        request: SendMessageRequest,
+        options: IdempotentRequestOptions,
+    ) -> Result<Message> {
         validate_phone(&request.to)?;
         let has_media = request.media_urls.as_ref().map_or(false, |u| !u.is_empty());
         if !has_media {
             validate_text(&request.text)?;
         }
 
-        let response = self.client.post("/messages", &request).await?;
+        let response = self
+            .client
+            .post_with_idempotency(
+                "/messages",
+                &request,
+                options.idempotency_key.as_deref(),
+                true,
+            )
+            .await?;
         let message: Message = response.json().await?;
 
         Ok(message)
@@ -114,6 +155,40 @@ impl<'a> Messages<'a> {
         &self,
         request: SendWhatsAppMessageRequest,
     ) -> Result<WhatsAppMessage> {
+        self.send_whatsapp_with_options(request, IdempotentRequestOptions::new())
+            .await
+    }
+
+    /// Sends a WhatsApp message with per-call options (e.g. an idempotency key).
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - WhatsApp message details
+    /// * `options` - Per-call options
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{IdempotentRequestOptions, Sendly, SendWhatsAppMessageRequest};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let message = client.messages()
+    ///     .send_whatsapp_with_options(
+    ///         SendWhatsAppMessageRequest::new("+15551234567", "+15559876543")
+    ///             .with_text("Your table is ready!"),
+    ///         IdempotentRequestOptions::new().idempotency_key("table-ready-4821"),
+    ///     )
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_whatsapp_with_options(
+        &self,
+        request: SendWhatsAppMessageRequest,
+        options: IdempotentRequestOptions,
+    ) -> Result<WhatsAppMessage> {
         validate_phone(&request.to)?;
         validate_phone(&request.from)?;
         let has_media = request.media_urls.as_ref().map_or(false, |u| !u.is_empty());
@@ -124,7 +199,15 @@ impl<'a> Messages<'a> {
             });
         }
 
-        let response = self.client.post("/messages", &request).await?;
+        let response = self
+            .client
+            .post_with_idempotency(
+                "/messages",
+                &request,
+                options.idempotency_key.as_deref(),
+                true,
+            )
+            .await?;
         let message: WhatsAppMessage = response.json().await?;
 
         Ok(message)
@@ -185,6 +268,40 @@ impl<'a> Messages<'a> {
     /// # }
     /// ```
     pub async fn send_rcs(&self, request: SendRcsMessageRequest) -> Result<RcsMessage> {
+        self.send_rcs_with_options(request, IdempotentRequestOptions::new())
+            .await
+    }
+
+    /// Sends an RCS message with per-call options (e.g. an idempotency key).
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - RCS message details
+    /// * `options` - Per-call options
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{IdempotentRequestOptions, Sendly, SendRcsMessageRequest};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let message = client.messages()
+    ///     .send_rcs_with_options(
+    ///         SendRcsMessageRequest::new("+15551234567")
+    ///             .with_text("Your order #4821 has shipped!"),
+    ///         IdempotentRequestOptions::new().idempotency_key("order-4821-shipped"),
+    ///     )
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_rcs_with_options(
+        &self,
+        request: SendRcsMessageRequest,
+        options: IdempotentRequestOptions,
+    ) -> Result<RcsMessage> {
         validate_phone(&request.to)?;
         let has_text = request.text.as_ref().map_or(false, |t| !t.is_empty());
         if has_text == request.card.is_some() {
@@ -198,7 +315,15 @@ impl<'a> Messages<'a> {
             });
         }
 
-        let response = self.client.post("/messages", &request).await?;
+        let response = self
+            .client
+            .post_with_idempotency(
+                "/messages",
+                &request,
+                options.idempotency_key.as_deref(),
+                true,
+            )
+            .await?;
         let message: RcsMessage = response.json().await?;
 
         Ok(message)
@@ -272,6 +397,43 @@ impl<'a> Messages<'a> {
         &self,
         request: SendGroupMessageRequest,
     ) -> Result<GroupMessageResponse> {
+        self.send_group_with_options(request, IdempotentRequestOptions::new())
+            .await
+    }
+
+    /// Sends a group MMS with per-call options (e.g. an idempotency key).
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - Group message details (2-8 recipients, text and/or media)
+    /// * `options` - Per-call options
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{IdempotentRequestOptions, Sendly, SendGroupMessageRequest};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let group = client.messages()
+    ///     .send_group_with_options(
+    ///         SendGroupMessageRequest::new(vec![
+    ///             "+14155551234".to_string(),
+    ///             "+14155555678".to_string(),
+    ///         ])
+    ///         .with_text("Hey team - quick sync at noon?"),
+    ///         IdempotentRequestOptions::new().idempotency_key("standup-ping-0824"),
+    ///     )
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_group_with_options(
+        &self,
+        request: SendGroupMessageRequest,
+        options: IdempotentRequestOptions,
+    ) -> Result<GroupMessageResponse> {
         if request.to.len() < 2 {
             return Err(Error::Validation {
                 message: "Group messaging requires at least 2 recipients".to_string(),
@@ -293,7 +455,15 @@ impl<'a> Messages<'a> {
             });
         }
 
-        let response = self.client.post("/messages/group", &request).await?;
+        let response = self
+            .client
+            .post_with_idempotency(
+                "/messages/group",
+                &request,
+                options.idempotency_key.as_deref(),
+                true,
+            )
+            .await?;
         let result: GroupMessageResponse = response.json().await?;
 
         Ok(result)
@@ -557,6 +727,46 @@ impl<'a> Messages<'a> {
     /// # }
     /// ```
     pub async fn schedule(&self, request: ScheduleMessageRequest) -> Result<ScheduledMessage> {
+        self.schedule_with_options(request, IdempotentRequestOptions::new())
+            .await
+    }
+
+    /// Schedules an SMS message with per-call options (e.g. an idempotency key).
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The schedule message request
+    /// * `options` - Per-call options
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{IdempotentRequestOptions, ScheduleMessageRequest, Sendly};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let scheduled = client.messages()
+    ///     .schedule_with_options(
+    ///         ScheduleMessageRequest {
+    ///             to: "+15551234567".to_string(),
+    ///             text: "Reminder: Your appointment is tomorrow!".to_string(),
+    ///             scheduled_at: "2025-01-20T10:00:00Z".to_string(),
+    ///             from: None,
+    ///             message_type: None,
+    ///             metadata: None,
+    ///         },
+    ///         IdempotentRequestOptions::new().idempotency_key("reminder-visit-31"),
+    ///     )
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn schedule_with_options(
+        &self,
+        request: ScheduleMessageRequest,
+        options: IdempotentRequestOptions,
+    ) -> Result<ScheduledMessage> {
         validate_phone(&request.to)?;
         validate_text(&request.text)?;
 
@@ -566,7 +776,15 @@ impl<'a> Messages<'a> {
             });
         }
 
-        let response = self.client.post("/messages/schedule", &request).await?;
+        let response = self
+            .client
+            .post_with_idempotency(
+                "/messages/schedule",
+                &request,
+                options.idempotency_key.as_deref(),
+                true,
+            )
+            .await?;
         let scheduled: ScheduledMessage = response.json().await?;
 
         Ok(scheduled)
@@ -712,6 +930,48 @@ impl<'a> Messages<'a> {
     /// # }
     /// ```
     pub async fn send_batch(&self, request: SendBatchRequest) -> Result<BatchMessageResponse> {
+        self.send_batch_with_options(request, IdempotentRequestOptions::new())
+            .await
+    }
+
+    /// Sends a batch with per-call options (e.g. an idempotency key).
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The batch send request
+    /// * `options` - Per-call options
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{BatchMessageItem, IdempotentRequestOptions, SendBatchRequest, Sendly};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let result = client.messages()
+    ///     .send_batch_with_options(
+    ///         SendBatchRequest {
+    ///             messages: vec![BatchMessageItem {
+    ///                 to: "+15551234567".to_string(),
+    ///                 text: "Hello Alice!".to_string(),
+    ///                 metadata: None,
+    ///             }],
+    ///             from: None,
+    ///             message_type: None,
+    ///             metadata: None,
+    ///         },
+    ///         IdempotentRequestOptions::new().idempotency_key("campaign-77-wave-1"),
+    ///     )
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_batch_with_options(
+        &self,
+        request: SendBatchRequest,
+        options: IdempotentRequestOptions,
+    ) -> Result<BatchMessageResponse> {
         if request.messages.is_empty() {
             return Err(Error::Validation {
                 message: "Messages array is required".to_string(),
@@ -728,7 +988,18 @@ impl<'a> Messages<'a> {
             })?;
         }
 
-        let response = self.client.post("/messages/batch", &request).await?;
+        // The batch endpoint dedupes header-less retries server-side by hashing
+        // the request content; an auto-generated key would bypass that net for
+        // identical cross-process re-runs, so only caller-supplied keys are sent.
+        let response = self
+            .client
+            .post_with_idempotency(
+                "/messages/batch",
+                &request,
+                options.idempotency_key.as_deref(),
+                false,
+            )
+            .await?;
         let result: BatchMessageResponse = response.json().await?;
 
         Ok(result)

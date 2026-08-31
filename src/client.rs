@@ -269,6 +269,29 @@ impl Sendly {
 
     /// Makes a POST request.
     pub(crate) async fn post<T: serde::Serialize>(&self, path: &str, body: &T) -> Result<Response> {
+        self.post_with_idempotency(path, body, None, true).await
+    }
+
+    /// Makes a POST request with idempotency-key handling.
+    ///
+    /// A caller-supplied key is validated and sent verbatim. Without one,
+    /// an auto-generated key is attached (unless `auto_key` is false) —
+    /// created once per logical request and reused across retry attempts,
+    /// so the server can recognize a retry of a timed-out POST that
+    /// actually reached it.
+    pub(crate) async fn post_with_idempotency<T: serde::Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        idempotency_key: Option<&str>,
+        auto_key: bool,
+    ) -> Result<Response> {
+        let idempotency_key = match normalize_idempotency_key(idempotency_key)? {
+            Some(key) => Some(key),
+            None if auto_key => Some(generate_idempotency_key()),
+            None => None,
+        };
+
         self.request_with_retry(|| async {
             let url = format!("{}{}", self.config.base_url, path);
 
@@ -277,9 +300,13 @@ impl Sendly {
                 .post(&url)
                 .json(body)
                 .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .header("User-Agent", format!("sendly-rs/{}", VERSION));
+            let req = if let Some(ref key) = idempotency_key {
+                req.header("Idempotency-Key", key)
+            } else {
+                req
+            };
             let req = if let Some(ref org_id) = self.organization_id {
                 req.header("X-Organization-Id", org_id)
             } else {
@@ -300,7 +327,6 @@ impl Sendly {
                 .put(&url)
                 .json(body)
                 .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .header("User-Agent", format!("sendly-rs/{}", VERSION));
             let req = if let Some(ref org_id) = self.organization_id {
@@ -327,7 +353,6 @@ impl Sendly {
                 .patch(&url)
                 .json(body)
                 .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .header("User-Agent", format!("sendly-rs/{}", VERSION));
             let req = if let Some(ref org_id) = self.organization_id {
@@ -347,6 +372,7 @@ impl Sendly {
         form: multipart::Form,
     ) -> Result<Response> {
         let url = format!("{}{}", self.config.base_url, path);
+        let idempotency_key = generate_idempotency_key();
 
         let req = self
             .client
@@ -354,7 +380,8 @@ impl Sendly {
             .multipart(form)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Accept", "application/json")
-            .header("User-Agent", format!("sendly-rs/{}", VERSION));
+            .header("User-Agent", format!("sendly-rs/{}", VERSION))
+            .header("Idempotency-Key", &idempotency_key);
         let req = if let Some(ref org_id) = self.organization_id {
             req.header("X-Organization-Id", org_id)
         } else {
@@ -476,4 +503,24 @@ impl Sendly {
             },
         })
     }
+}
+
+fn generate_idempotency_key() -> String {
+    format!("sendly-rust-retry-{}", uuid::Uuid::new_v4())
+}
+
+fn normalize_idempotency_key(key: Option<&str>) -> Result<Option<String>> {
+    let Some(key) = key else {
+        return Ok(None);
+    };
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > 255 || !trimmed.bytes().all(|b| (0x20..=0x7E).contains(&b)) {
+        return Err(Error::Validation {
+            message: "Idempotency key must be 1-255 printable ASCII characters".to_string(),
+        });
+    }
+    Ok(Some(trimmed.to_string()))
 }
