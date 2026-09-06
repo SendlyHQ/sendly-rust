@@ -85,7 +85,7 @@ let client = Sendly::with_config("sk_live_v1_xxx", config);
 
 ## Idempotency
 
-Every send POST carries an automatically generated `Idempotency-Key`, created once per logical request and reused across the SDK's own retries, so a retry of a request that already reached the API returns the original result instead of sending again. Pass your own key through the `*_with_options` send methods when the guarantee needs to outlive the process, such as a job queue that re-runs after a crash. Repeating a request with the same key within 24 hours returns the original response instead of executing again. Keys are 1-255 printable ASCII characters; `send_batch` attaches no automatic key because the API already deduplicates identical batches by their contents.
+Every send POST carries an automatically generated `Idempotency-Key`, created once per logical request and reused across the SDK's own retries, so a retry of a request that already reached the API returns the original result instead of sending again. Pass your own key through the `*_with_options` send methods when the guarantee needs to outlive the process, such as a job queue that re-runs after a crash. Repeating a request with the same key within 24 hours returns the original response instead of executing again. Keys are 1-255 printable ASCII characters; `send_batch` attaches no automatic key because the API already deduplicates identical batches by their contents. RCS registration writes (brand and agent create/update, test devices, submit, request launch) carry a key the same way, including their PATCH and PUT calls, with `*_with_options` variants for your own key.
 
 ```rust
 use sendly::{IdempotentRequestOptions, Sendly, SendMessageRequest};
@@ -576,13 +576,161 @@ let updated = client.whatsapp().senders().update_profile(
 
 RCS is the branded, rich upgrade to SMS: your verified agent name and logo
 instead of a bare number, plus tappable suggestion chips and rich cards, on
-Android and iOS 18+ handsets. Messages go out through an RCS agent registered
-for your brand — contact support to set one up. RCS requires a live API key.
+Android and iOS 18+ handsets. Messages go out through an RCS agent (the
+verified identity recipients see). Registration is self-serve, from the
+dashboard or the API: draft a brand and an agent, submit them for review
+(Sendly reviews first, then the carrier network), test on invited devices,
+then request launch. Sending requires a live API key.
 
 Text sends fall back to plain SMS automatically when the recipient's device or
 network doesn't support RCS, so one call covers your whole list. The fallback is
 billed as SMS and is visible on the response — `fell_back_to_sms()` is the
 direct check. Cards have no SMS form and never fall back.
+
+### Registering an agent
+
+Reads need the `rcs:read` scope and writes `rcs:write`. Every brand and agent
+field is optional while drafting; required-field checks run at `submit`, which
+lists each gap in the 422 `rcs_invalid_content` response. Logo, hero, and
+call-to-action media must be public `https://` URLs; uploading assets is
+dashboard-only. RCS registration is available to US businesses for now. Every
+registration write carries an `Idempotency-Key` (generated per call, or your
+own through the `*_with_options` variants). While RCS registration isn't enabled
+for an account, these calls answer 404 (`Error::NotFound`).
+
+```rust
+use sendly::{
+    CreateRcsAgentRequest, IdempotentRequestOptions, RcsAgentBasicsInput, RcsBrandAddressInput,
+    RcsBrandContactInput, RcsCampaign, RcsConsentSettings, RcsCustomerStage, RcsInteraction,
+    RcsOptInMethod, RcsRequestLaunchRequest, RcsTestDeviceInput, Sendly, UpdateRcsAgentRequest,
+};
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+// 1. Draft a brand - prefill it from business details already on file
+let dossier = client.rcs().dossier().get().await?;
+let brand = client
+    .rcs()
+    .brands()
+    .create(
+        dossier
+            .brand
+            .display_name("Acme Coffee")
+            .legal_name("Acme Coffee LLC")
+            .legal_entity_type("LIMITED_LIABILITY_COMPANY")
+            .organization_type("PRIVATE_PROFIT")
+            .website_url("https://acme.example")
+            .ein("12-3456789")
+            .address(
+                RcsBrandAddressInput::new()
+                    .line1("100 Main St")
+                    .city("Chicago")
+                    .state("IL")
+                    .postal_code("60601")
+                    .country_code("US"),
+            )
+            .contact(
+                RcsBrandContactInput::new()
+                    .first_name("Sam")
+                    .last_name("Lee")
+                    .email("sam@acme.example")
+                    .phone_number("+13125550100"),
+            ),
+    )
+    .await?
+    .brand;
+
+// 2. Draft the agent recipients will see
+let agent = client
+    .rcs()
+    .agents()
+    .create(
+        CreateRcsAgentRequest::new(&brand.id)
+            .display_name("Acme Coffee")
+            .use_case("MULTI_USE")
+            .basics(
+                RcsAgentBasicsInput::new()
+                    .description("Order updates and support for Acme Coffee customers")
+                    .logo_url("https://acme.example/rcs/logo.png") // public https URL
+                    .hero_url("https://acme.example/rcs/hero.png")
+                    .brand_color("#0B6E4F")
+                    .privacy_policy_url("https://acme.example/privacy")
+                    .terms_and_conditions_url("https://acme.example/terms"),
+            ),
+    )
+    .await?
+    .agent;
+
+// 3. Submit for review - your own idempotency key means a retry never re-notifies reviewers
+let review = client
+    .rcs()
+    .agents()
+    .submit_with_options(
+        &agent.id,
+        IdempotentRequestOptions::new().idempotency_key(format!("rcs-submit-{}", agent.id)),
+    )
+    .await?;
+println!("{}", review.stage); // in_review
+
+// Poll for progress: in_review -> brand_verification -> agent_review -> testing -> ...
+let current = client.rcs().agents().get(&agent.id).await?;
+println!("{} {:?}", current.stage, current.agent.review_note);
+
+// 4. Once the stage is testing: invite your devices and fill in the campaign
+if current.stage == RcsCustomerStage::Testing {
+    client
+        .rcs()
+        .agents()
+        .set_test_devices(
+            &agent.id,
+            vec![RcsTestDeviceInput::new("+13125550100").label("Sam's Pixel")],
+        )
+        .await?;
+    client
+        .rcs()
+        .agents()
+        .update(
+            &agent.id,
+            UpdateRcsAgentRequest::new().campaign(
+                RcsCampaign::new()
+                    .agent_overview("Order confirmations, pickup alerts, and support replies")
+                    .interactions(vec![RcsInteraction::new("TRANSACTIONAL_UPDATES", "Order status")])
+                    .message_examples(vec![
+                        "Your order #4821 is being roasted.".to_string(),
+                        "Your order #4821 is ready for pickup!".to_string(),
+                        "Thanks for visiting. Reply HELP for support.".to_string(),
+                    ])
+                    .consent_settings(
+                        RcsConsentSettings::new()
+                            .opt_in_methods(vec![RcsOptInMethod::new("WEBSITE", "Checkout checkbox")])
+                            .call_to_action("Text me order updates")
+                            .call_to_action_url("https://acme.example/checkout")
+                            .opt_in_message("Welcome to Acme Coffee updates. Reply STOP to opt out.")
+                            .help_response("Acme Coffee: email help@acme.example for support.")
+                            .opt_out_response("You have been unsubscribed from Acme Coffee updates."),
+                    ),
+            ),
+        )
+        .await?;
+
+    // 5. Send a test message to an invited device, then request launch
+    let launch = client
+        .rcs()
+        .agents()
+        .request_launch(
+            &agent.id,
+            Some(RcsRequestLaunchRequest::new().test_url("https://acme.example/rcs-test")),
+        )
+        .await?;
+    println!("{}", launch.stage); // launch_review
+}
+
+// The whole registration at a glance
+let registration = client.rcs().registration().get().await?;
+println!("{} (US eligible: {})", registration.stage, registration.us_eligible);
+```
+
+### Sending
 
 ```rust
 use sendly::{RcsCard, RcsSuggestion, SendRcsMessageRequest, Sendly};

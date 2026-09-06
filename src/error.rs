@@ -88,4 +88,16 @@ impl ApiErrorResponse {
             .or_else(|| self.error.clone())
             .unwrap_or_else(|| "Unknown error".to_string())
     }
+
+    /// The machine-readable code: an explicit `code`, else the `error`
+    /// field when the body also carries a human `message` (the
+    /// `{ error, message }` shape), so `Error::Api::code` can be matched on.
+    pub fn code(&self) -> Option<String> {
+        self.code
+            .clone()
+            .or_else(|| match (&self.error, &self.message) {
+                (Some(error), Some(_)) => Some(error.clone()),
+                _ => None,
+            })
+    }
 }

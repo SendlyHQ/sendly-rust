@@ -1,5 +1,35 @@
 # sendly (Rust)
 
+## Unreleased
+
+### Minor Changes
+
+- **RCS registration is self-serve from the SDK.** `client.rcs()` gains four sub-resources that mirror the dashboard's registration flow: `registration().get()` (the workspace's brand, agent, devices and `stage` at a glance), `dossier().get()` (business details already on file, shaped as an `RcsBrandInput` you can pass straight to `brands().create`), `brands().create` / `brands().update`, and on `agents()`: `create`, `get`, `update`, `set_test_devices`, `submit` and `request_launch`. Sendly reviews a submission first, then the carrier network; poll `agents().get` (or `registration().get`) and read `RcsCustomerStage` as it moves through review, testing and launch. Logo, hero and call-to-action media must already be public `https://` URLs; uploading assets is dashboard-only. Reads need the `rcs:read` scope and writes `rcs:write`. While RCS registration isn't enabled for an account these calls answer 404 (`Error::NotFound`).
+
+  ```rust
+  use sendly::{CreateRcsAgentRequest, RcsAgentBasicsInput, RcsBrandAddressInput, RcsBrandInput, Sendly};
+
+  let brand = client.rcs().brands().create(
+      RcsBrandInput::new()
+          .display_name("Acme Coffee")
+          .legal_name("Acme Coffee LLC")
+          .ein("12-3456789")
+          .address(RcsBrandAddressInput::new().line1("100 Main St").city("Chicago").state("IL").postal_code("60601").country_code("US")),
+  ).await?.brand;
+  let agent = client.rcs().agents().create(
+      CreateRcsAgentRequest::new(&brand.id)
+          .display_name("Acme Coffee")
+          .use_case("MULTI_USE")
+          .basics(RcsAgentBasicsInput::new().logo_url("https://acme.example/rcs/logo.png")),
+  ).await?.agent;
+  let review = client.rcs().agents().submit(&agent.id).await?;
+  println!("{}", review.stage); // in_review
+  ```
+- **Typed registration models.** `RcsCustomerStage` and `RcsReviewStatus` enums (with an `Unknown` fallback so a stage this version doesn't know never fails decoding), `RcsBrand`, `RcsBrandAddress`, `RcsBrandContact`, `RcsAgentDetail`, `RcsAgentBasics`, `RcsTestDevice`, `RcsRegistration`, `RcsDossier`, and the response envelopes `RcsBrandResponse`, `RcsAgentResponse`, `RcsAgentDetailResponse`, `RcsTestDeviceListResponse`, `RcsAgentReviewResponse`. Inputs are builders: `RcsBrandInput` (+ `RcsBrandAddressInput`, `RcsBrandContactInput`), `RcsAgentBasicsInput` (+ `RcsAgentPhoneContact`, `RcsAgentWebsiteContact`, `RcsAgentEmailContact`), `RcsCampaign` (+ `RcsInteraction`, `RcsConsentSettings`, `RcsOptInMethod`), `RcsTesting`, `CreateRcsAgentRequest`, `UpdateRcsAgentRequest` (with `clear_campaign()` / `clear_testing()` to send `null`), `RcsTestDeviceInput` and `RcsRequestLaunchRequest`.
+- **`RcsAgent::stage`.** `agents().list()` now reads the `stage` the API reports on each agent, as `Option<RcsCustomerStage>` (`None` when a payload doesn't carry it).
+- **Idempotency keys on registration writes.** Every registration write carries an `Idempotency-Key`, generated per call like other POSTs and, new for this crate, on the PATCH and PUT calls too (`brands().update`, `agents().update`, `agents().set_test_devices`). Each write has a `*_with_options` twin that takes `IdempotentRequestOptions` for your own key; pass one to `submit_with_options` so a retried submit returns the original result instead of notifying reviewers again.
+- **`Error::Api::code` is populated from `{ error, message }` bodies.** When an error body carries both an `error` code and a human `message` and no separate `code` field, the `error` value is now surfaced as `code`, so a 409 `rcs_field_locked`, `rcs_brand_not_verified` or `rcs_launch_not_ready` can be matched on instead of parsed out of the message. Bodies with only an `error` string are unchanged (`code` stays `None`).
+
 ## 3.38.0
 
 ### Minor Changes

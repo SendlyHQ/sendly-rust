@@ -1,4 +1,4 @@
-use reqwest::{multipart, Client, Response, StatusCode};
+use reqwest::{multipart, Client, Method, Response, StatusCode};
 use std::time::Duration;
 
 use crate::account_resource::AccountResource;
@@ -286,6 +286,44 @@ impl Sendly {
         idempotency_key: Option<&str>,
         auto_key: bool,
     ) -> Result<Response> {
+        self.write_with_idempotency(Method::POST, path, body, idempotency_key, auto_key)
+            .await
+    }
+
+    /// Makes a PATCH request with idempotency-key handling (see
+    /// [`post_with_idempotency`](Self::post_with_idempotency)).
+    pub(crate) async fn patch_with_idempotency<T: serde::Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        idempotency_key: Option<&str>,
+        auto_key: bool,
+    ) -> Result<Response> {
+        self.write_with_idempotency(Method::PATCH, path, body, idempotency_key, auto_key)
+            .await
+    }
+
+    /// Makes a PUT request with idempotency-key handling (see
+    /// [`post_with_idempotency`](Self::post_with_idempotency)).
+    pub(crate) async fn put_with_idempotency<T: serde::Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        idempotency_key: Option<&str>,
+        auto_key: bool,
+    ) -> Result<Response> {
+        self.write_with_idempotency(Method::PUT, path, body, idempotency_key, auto_key)
+            .await
+    }
+
+    async fn write_with_idempotency<T: serde::Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        body: &T,
+        idempotency_key: Option<&str>,
+        auto_key: bool,
+    ) -> Result<Response> {
         let idempotency_key = match normalize_idempotency_key(idempotency_key)? {
             Some(key) => Some(key),
             None if auto_key => Some(generate_idempotency_key()),
@@ -297,7 +335,7 @@ impl Sendly {
 
             let req = self
                 .client
-                .post(&url)
+                .request(method.clone(), &url)
                 .json(body)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Accept", "application/json")
@@ -499,7 +537,7 @@ impl Sendly {
             _ => Error::Api {
                 message,
                 status_code: status.as_u16(),
-                code: error_body.code,
+                code: error_body.code(),
             },
         })
     }
