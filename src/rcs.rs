@@ -167,7 +167,11 @@ impl std::fmt::Display for RcsReviewStatus {
 }
 
 /// An RCS agent registered for your brand.
+///
+/// Deserialize-only: the API fills this in. It is `#[non_exhaustive]` so that
+/// later fields arrive as a minor release rather than a breaking one.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct RcsAgent {
     /// Unique agent identifier — pass it as `agent_id` when sending.
     pub id: String,

@@ -4,6 +4,9 @@
 
 ### Minor Changes
 
+- **`RcsAgent` is now `#[non_exhaustive]`.** It is a deserialize-only response type, so this costs nothing to read it, and it means later fields (such as the `stage` added in this release) arrive as minor releases instead of breaking struct-literal construction. If you were building an `RcsAgent` by hand, construct it from a deserialized response instead.
+
+
 - **RCS registration is self-serve from the SDK.** `client.rcs()` gains four sub-resources that mirror the dashboard's registration flow: `registration().get()` (the workspace's brand, agent, devices and `stage` at a glance), `dossier().get()` (business details already on file, shaped as an `RcsBrandInput` you can pass straight to `brands().create`), `brands().create` / `brands().update`, and on `agents()`: `create`, `get`, `update`, `set_test_devices`, `submit` and `request_launch`. Sendly reviews a submission first, then the carrier network; poll `agents().get` (or `registration().get`) and read `RcsCustomerStage` as it moves through review, testing and launch. Logo, hero and call-to-action media must already be public `https://` URLs; uploading assets is dashboard-only. Reads need the `rcs:read` scope and writes `rcs:write`. While RCS registration isn't enabled for an account these calls answer 404 (`Error::NotFound`).
 
   ```rust
