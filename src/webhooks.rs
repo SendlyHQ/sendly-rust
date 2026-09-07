@@ -36,16 +36,22 @@ type HmacSha256 = Hmac<Sha256>;
 
 const SIGNATURE_TOLERANCE_SECONDS: u64 = 300;
 
-/// Webhook event types
+/// Webhook event types.
+///
+/// Generated from `shared/webhook-types.ts`; `scripts/check-webhook-event-parity.mjs`
+/// fails CI if the two drift. Marked `#[non_exhaustive]` so later releases can add
+/// events without a breaking change, and any type this build does not know
+/// deserialises into [`WebhookEventType::Unknown`] rather than failing the parse.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum WebhookEventType {
-    #[serde(rename = "message.queued")]
-    MessageQueued,
     #[serde(rename = "message.sent")]
     MessageSent,
     #[serde(rename = "message.delivered")]
     MessageDelivered,
+    #[serde(rename = "message.read")]
+    MessageRead,
     #[serde(rename = "message.failed")]
     MessageFailed,
     #[serde(rename = "message.bounced")]
@@ -58,8 +64,6 @@ pub enum WebhookEventType {
     MessageOptOut,
     #[serde(rename = "message.opt_in")]
     MessageOptIn,
-    #[serde(rename = "message.undelivered")]
-    MessageUndelivered,
     #[serde(rename = "verification.created")]
     VerificationCreated,
     #[serde(rename = "verification.delivered")]
@@ -74,6 +78,16 @@ pub enum WebhookEventType {
     VerificationResent,
     #[serde(rename = "verification.delivery_failed")]
     VerificationDeliveryFailed,
+    #[serde(rename = "conversation.created")]
+    ConversationCreated,
+    #[serde(rename = "conversation.updated")]
+    ConversationUpdated,
+    #[serde(rename = "draft.created")]
+    DraftCreated,
+    #[serde(rename = "draft.approved")]
+    DraftApproved,
+    #[serde(rename = "draft.rejected")]
+    DraftRejected,
     #[serde(rename = "contact.auto_flagged")]
     ContactAutoFlagged,
     #[serde(rename = "contact.marked_valid")]
@@ -96,6 +110,18 @@ pub enum WebhookEventType {
     AssignmentConfirmed,
     #[serde(rename = "assignment.failed")]
     AssignmentFailed,
+    #[serde(rename = "rcs_brand.verified")]
+    RcsBrandVerified,
+    #[serde(rename = "rcs_brand.failed")]
+    RcsBrandFailed,
+    #[serde(rename = "rcs_agent.testing")]
+    RcsAgentTesting,
+    #[serde(rename = "rcs_agent.live")]
+    RcsAgentLive,
+    #[serde(rename = "rcs_agent.rejected")]
+    RcsAgentRejected,
+    #[serde(rename = "rcs_agent.action_required")]
+    RcsAgentActionRequired,
     #[serde(rename = "port.completed")]
     PortCompleted,
     #[serde(rename = "port_out.requested")]
@@ -114,6 +140,25 @@ pub enum WebhookEventType {
     NumberRequirementsRequired,
     #[serde(rename = "number.released")]
     NumberReleased,
+    #[serde(rename = "whatsapp_account.connected")]
+    WhatsappAccountConnected,
+    #[serde(rename = "whatsapp_account.failed")]
+    WhatsappAccountFailed,
+    #[serde(rename = "whatsapp_template.approved")]
+    WhatsappTemplateApproved,
+    #[serde(rename = "whatsapp_template.rejected")]
+    WhatsappTemplateRejected,
+    #[serde(rename = "whatsapp_template.paused")]
+    WhatsappTemplatePaused,
+    #[serde(rename = "call.started")]
+    CallStarted,
+    #[serde(rename = "call.completed")]
+    CallCompleted,
+    #[serde(rename = "call.recording.ready")]
+    CallRecordingReady,
+    /// An event type this SDK version does not know about.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 /// Source of a list-health event. Frozen enum — new values will be
@@ -455,5 +500,27 @@ mod tests {
 
         assert!(signature.starts_with("sha256="));
         assert_eq!(signature.len(), 71); // "sha256=" + 64 hex chars
+    }
+
+    #[test]
+    fn deserialises_rcs_and_lifecycle_event_types() {
+        let rcs: WebhookEventType = serde_json::from_str("\"rcs_agent.live\"").unwrap();
+        assert_eq!(rcs, WebhookEventType::RcsAgentLive);
+        let wa: WebhookEventType = serde_json::from_str("\"whatsapp_template.paused\"").unwrap();
+        assert_eq!(wa, WebhookEventType::WhatsappTemplatePaused);
+        let call: WebhookEventType = serde_json::from_str("\"call.recording.ready\"").unwrap();
+        assert_eq!(call, WebhookEventType::CallRecordingReady);
+    }
+
+    #[test]
+    fn unknown_event_type_falls_back_instead_of_failing() {
+        let ev: WebhookEventType = serde_json::from_str("\"something.invented_later\"").unwrap();
+        assert_eq!(ev, WebhookEventType::Unknown("something.invented_later".to_string()));
+    }
+
+    #[test]
+    fn known_event_type_round_trips() {
+        let ev = WebhookEventType::MessageDelivered;
+        assert_eq!(serde_json::to_string(&ev).unwrap(), "\"message.delivered\"");
     }
 }
