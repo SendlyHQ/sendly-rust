@@ -4,6 +4,12 @@
 
 ### Minor Changes
 
+- **Minimum `serde` is now 1.0.185.** `WebhookEventType` is `#[non_exhaustive]` with a
+  data-carrying `Unknown` variant, and deriving `Serialize` on that shape fails to
+  compile with *"cannot move out of a shared reference"* on serde 1.0.166 through
+  1.0.184. The requirement was `1.0`, so a build resolving an older serde would not
+  compile at all. Verified by building against each boundary version.
+
 - **`RcsAgent` is now `#[non_exhaustive]`.** It is a deserialize-only response type, so this costs nothing to read it, and it means later fields (such as the `stage` added in this release) arrive as minor releases instead of breaking struct-literal construction. If you were building an `RcsAgent` by hand, construct it from a deserialized response instead.
 
 

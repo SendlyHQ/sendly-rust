@@ -13,7 +13,12 @@ categories = ["api-bindings", "web-programming"]
 
 [dependencies]
 reqwest = { version = "0.11", features = ["json", "multipart", "stream"] }
-serde = { version = "1.0", features = ["derive"] }
+# 1.0.185 is the floor, not cosmetic: WebhookEventType is #[non_exhaustive]
+# with a data-carrying Unknown variant, and deriving Serialize on that shape
+# fails to compile with "cannot move out of a shared reference" on 1.0.166
+# through 1.0.184 (fixed in serde 1.0.185). Variant-level #[serde(untagged)]
+# additionally needs >= 1.0.164.
+serde = { version = "1.0.185", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
 tokio = { version = "1.0", features = ["time", "fs"] }
