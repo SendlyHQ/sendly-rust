@@ -297,17 +297,29 @@ fn default_segments() -> i32 {
     1
 }
 
-/// Webhook event from Sendly
+/// Webhook event from Sendly.
+///
+/// `#[non_exhaustive]`, so later releases can add fields without a breaking
+/// change. Construct one only by parsing a payload.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct WebhookEvent {
     /// Unique event ID
     pub id: String,
     /// Event type
     #[serde(rename = "type")]
     pub event_type: WebhookEventType,
-    /// Event data
+    /// The message view of `data.object`.
+    ///
+    /// `None` for lifecycle events — `rcs_*`, `whatsapp_*`, `call.*`,
+    /// `brand.*`, `campaign.*`, `assignment.*`, `number.*` and `port*` — whose
+    /// payload is not message-shaped. Use [`WebhookEvent::object`] or
+    /// [`WebhookEvent::object_as`] for those.
     #[serde(skip_serializing)]
-    pub data: WebhookMessageData,
+    pub data: Option<WebhookMessageData>,
+    /// `data.object` exactly as it arrived, for every event type.
+    #[serde(skip_serializing)]
+    pub object: Value,
     /// When the event was created (unix timestamp)
     #[serde(default)]
     pub created: Value,
@@ -317,6 +329,23 @@ pub struct WebhookEvent {
     /// Whether this is a live (production) event
     #[serde(default)]
     pub livemode: bool,
+}
+
+impl WebhookEvent {
+    /// Deserialize `data.object` into a type of your choosing.
+    ///
+    /// Use it for lifecycle events, whose payload is not message-shaped:
+    ///
+    /// ```ignore
+    /// #[derive(serde::Deserialize)]
+    /// struct AgentLive { agent_id: String, name: String, stage: String }
+    ///
+    /// let agent: AgentLive = event.object_as()?;
+    /// ```
+    pub fn object_as<T: serde::de::DeserializeOwned>(&self) -> Result<T, WebhookError> {
+        serde_json::from_value(self.object.clone())
+            .map_err(|e| WebhookError::ParseError(e.to_string()))
+    }
 }
 
 fn default_api_version() -> String {
@@ -407,14 +436,22 @@ impl Webhooks {
             data_val
         };
 
-        let mut msg_data: WebhookMessageData = serde_json::from_value(obj_val.clone())
-            .map_err(|e| WebhookError::ParseError(e.to_string()))?;
-
-        if msg_data.id.is_empty() {
-            if let Some(mid) = obj_val["message_id"].as_str() {
-                msg_data.id = mid.to_string();
-            }
-        }
+        // A lifecycle payload is not message-shaped, so this decode is expected
+        // to fail for those. Failing the whole parse there — which is what this
+        // used to do, with "missing field `id`" — made every RCS, WhatsApp,
+        // voice, 10DLC, number and porting webhook unreadable.
+        let msg_data: Option<WebhookMessageData> =
+            match serde_json::from_value::<WebhookMessageData>(obj_val.clone()) {
+                Ok(mut d) => {
+                    if d.id.is_empty() {
+                        if let Some(mid) = obj_val["message_id"].as_str() {
+                            d.id = mid.to_string();
+                        }
+                    }
+                    Some(d)
+                }
+                Err(_) => None,
+            };
 
         let created = if !raw["created"].is_null() {
             raw["created"].clone()
@@ -426,6 +463,7 @@ impl Webhooks {
             id,
             event_type,
             data: msg_data,
+            object: obj_val.clone(),
             created,
             api_version: raw["api_version"]
                 .as_str()
@@ -522,5 +560,54 @@ mod tests {
     fn known_event_type_round_trips() {
         let ev = WebhookEventType::MessageDelivered;
         assert_eq!(serde_json::to_string(&ev).unwrap(), "\"message.delivered\"");
+    }
+
+    #[derive(serde::Deserialize)]
+    struct AgentLive {
+        agent_id: String,
+        name: String,
+        stage: String,
+    }
+
+    // Regression: this used to return ParseError("missing field `id`"), so every
+    // RCS, WhatsApp, voice, 10DLC, number and porting webhook was unreadable.
+    #[test]
+    fn parses_a_lifecycle_event_and_exposes_its_object() {
+        let payload = r#"{"id":"evt_1","type":"rcs_agent.live","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"agent_id":"agt_1","name":"Acme Support","stage":"live","organization_id":"org_1"}}}"#;
+        let sig = Webhooks::generate_signature(payload, "s", None);
+        let event = Webhooks::parse_event(payload, &sig, "s", None).expect("should parse");
+
+        assert_eq!(event.event_type, WebhookEventType::RcsAgentLive);
+        assert!(event.data.is_none(), "a lifecycle event has no message view");
+
+        let agent: AgentLive = event.object_as().expect("object_as");
+        assert_eq!(agent.agent_id, "agt_1");
+        assert_eq!(agent.name, "Acme Support");
+        assert_eq!(agent.stage, "live");
+    }
+
+    #[test]
+    fn still_parses_a_message_event() {
+        let payload = r#"{"id":"evt_2","type":"message.delivered","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":"msg_1","to":"+15551234567","from":"+15559876543","status":"delivered","segments":1,"credits_used":2}}}"#;
+        let sig = Webhooks::generate_signature(payload, "s", None);
+        let event = Webhooks::parse_event(payload, &sig, "s", None).expect("should parse");
+
+        let data = event.data.expect("message events keep the message view");
+        assert_eq!(data.id, "msg_1");
+        assert_eq!(data.to, "+15551234567");
+        // The raw object is populated for message events too.
+        assert_eq!(event.object["id"], "msg_1");
+    }
+
+    #[test]
+    fn an_unknown_event_type_still_parses() {
+        let payload = r#"{"id":"evt_3","type":"something.invented_later","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"foo":"bar"}}}"#;
+        let sig = Webhooks::generate_signature(payload, "s", None);
+        let event = Webhooks::parse_event(payload, &sig, "s", None).expect("should parse");
+        assert_eq!(
+            event.event_type,
+            WebhookEventType::Unknown("something.invented_later".to_string())
+        );
+        assert_eq!(event.object["foo"], "bar");
     }
 }
