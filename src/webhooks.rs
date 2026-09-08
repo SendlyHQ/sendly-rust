@@ -610,4 +610,33 @@ mod tests {
         );
         assert_eq!(event.object["foo"], "bar");
     }
+
+    // Call events are the only ones with a legitimately null `from`/`to` — a
+    // browser-to-browser call has no PSTN numbers at either end. A required
+    // String message view rejects that, so it is the shape most likely to
+    // regress if `data` is ever made non-optional again.
+    #[test]
+    fn parses_call_events_including_null_numbers() {
+        let cases = [
+            r#"{"id":"evt_c1","type":"call.completed","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":"call_1","object":"call","kind":"pstn","direction":"outbound","status":"completed","from":"+15551234567","to":"+15559876543","duration_secs":42,"credits_charged":8,"hangup_class":"normal","recording_status":"ready"}}}"#,
+            r#"{"id":"evt_c2","type":"call.started","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":"call_2","object":"call","kind":"browser","direction":"inbound","status":"in_progress","from":null,"to":null,"handled_by":"agent"}}}"#,
+            r#"{"id":"evt_c3","type":"call.recording.ready","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":"call_3","object":"call","status":"completed","recording_status":"ready","hangup_class":"normal"}}}"#,
+        ];
+        for payload in cases {
+            let sig = Webhooks::generate_signature(payload, "s", None);
+            let event = Webhooks::parse_event(payload, &sig, "s", None)
+                .unwrap_or_else(|e| panic!("call event should parse: {e:?}"));
+            let obj: Value = event.object_as().expect("object_as");
+            assert_eq!(obj["object"], "call");
+        }
+    }
+
+    #[test]
+    fn a_call_recording_event_keeps_its_fields() {
+        let payload = r#"{"id":"evt_c4","type":"call.recording.ready","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":"call_4","recording_status":"ready","hangup_class":"normal"}}}"#;
+        let sig = Webhooks::generate_signature(payload, "s", None);
+        let event = Webhooks::parse_event(payload, &sig, "s", None).expect("should parse");
+        assert_eq!(event.object["recording_status"], "ready");
+        assert_eq!(event.object["hangup_class"], "normal");
+    }
 }

@@ -1,5 +1,61 @@
 # sendly (Rust)
 
+## 4.0.0
+
+The crate moves to 4.0.0 while the rest of the SDK fleet stays on 3.x. The
+changes below are breaking by [cargo's semver rules](https://doc.rust-lang.org/cargo/reference/semver.html),
+and shipping them inside a minor would break `cargo update` for anyone on
+`^3.39`. The fleet version number is not worth that.
+
+### Breaking Changes
+
+- **`WebhookEvent::data` is now `Option<WebhookMessageData>`.** It is `None` for
+  lifecycle events, whose payload is not message-shaped. This fixes a bug that
+  made those events unusable: `parse_event` decoded `data.object` into
+  `WebhookMessageData`, whose `id`, `status`, `to` and `from` are required, so
+  every `rcs_*`, `whatsapp_*`, `call.*`, `brand.*`, `campaign.*`,
+  `assignment.*`, `number.*` and `port*` webhook returned
+  `ParseError("missing field `id`")`. Match on it, or use the new `object`.
+
+  ```rust
+  // before
+  let to = event.data.to;
+  // after
+  if let Some(data) = &event.data { let to = &data.to; }
+  ```
+
+- **`WebhookEventType` gained the 20 event types the API actually emits**, plus
+  an `Unknown(String)` fallback so a type added later can never fail a parse
+  again. It is now `#[non_exhaustive]`, so add a wildcard arm to exhaustive
+  matches. Adding variants and adding `#[non_exhaustive]` are each a major
+  change on their own.
+
+- **`message.queued` and `message.undelivered` are removed.** The API has never
+  emitted them and rejects them with a 400 when you subscribe. Other SDKs keep
+  them as deprecated for one more cycle; this crate drops them now because it is
+  taking a major anyway.
+
+- **`WebhookEvent` is `#[non_exhaustive]`**, so later fields are additive.
+  Construct one only by parsing a payload.
+
+- **Minimum `serde` is now 1.0.185.** `WebhookEventType` is `#[non_exhaustive]`
+  with a data-carrying variant, and deriving `Serialize` on that shape fails to
+  compile with *"cannot move out of a shared reference"* on serde 1.0.166
+  through 1.0.184. Verified by building against each boundary version.
+
+### Added
+
+- **`WebhookEvent::object`** carries `data.object` exactly as it arrived, for
+  every event type, and **`object_as::<T>()`** deserializes it into a type of
+  your choosing — the supported way to read a lifecycle payload.
+
+  ```rust
+  #[derive(serde::Deserialize)]
+  struct AgentLive { agent_id: String, name: String, stage: String }
+
+  let agent: AgentLive = event.object_as()?;
+  ```
+
 ## Unreleased
 
 ### Minor Changes
