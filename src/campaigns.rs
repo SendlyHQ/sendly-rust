@@ -235,7 +235,7 @@ impl<'a> CampaignsResource<'a> {
     }
 
     pub async fn get(&self, id: &str) -> Result<Campaign> {
-        let response = self.client.get(&format!("/campaigns/{}", id), &[]).await?;
+        let response = self.client.get(&format!("/campaigns/{}", urlencoding::encode(id)), &[]).await?;
         Ok(response.json().await?)
     }
 
@@ -247,20 +247,20 @@ impl<'a> CampaignsResource<'a> {
     pub async fn update(&self, id: &str, request: UpdateCampaignRequest) -> Result<Campaign> {
         let response = self
             .client
-            .patch(&format!("/campaigns/{}", id), &request)
+            .patch(&format!("/campaigns/{}", urlencoding::encode(id)), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
-        self.client.delete(&format!("/campaigns/{}", id)).await?;
+        self.client.delete(&format!("/campaigns/{}", urlencoding::encode(id))).await?;
         Ok(())
     }
 
     pub async fn preview(&self, id: &str) -> Result<CampaignPreview> {
         let response = self
             .client
-            .get(&format!("/campaigns/{}/preview", id), &[])
+            .get(&format!("/campaigns/{}/preview", urlencoding::encode(id)), &[])
             .await?;
         Ok(response.json().await?)
     }
@@ -268,7 +268,7 @@ impl<'a> CampaignsResource<'a> {
     pub async fn send(&self, id: &str) -> Result<Campaign> {
         let response = self
             .client
-            .post(&format!("/campaigns/{}/send", id), &())
+            .post(&format!("/campaigns/{}/send", urlencoding::encode(id)), &())
             .await?;
         Ok(response.json().await?)
     }
@@ -276,7 +276,7 @@ impl<'a> CampaignsResource<'a> {
     pub async fn schedule(&self, id: &str, request: ScheduleCampaignRequest) -> Result<Campaign> {
         let response = self
             .client
-            .post(&format!("/campaigns/{}/schedule", id), &request)
+            .post(&format!("/campaigns/{}/schedule", urlencoding::encode(id)), &request)
             .await?;
         Ok(response.json().await?)
     }
@@ -284,7 +284,7 @@ impl<'a> CampaignsResource<'a> {
     pub async fn cancel(&self, id: &str) -> Result<Campaign> {
         let response = self
             .client
-            .post(&format!("/campaigns/{}/cancel", id), &())
+            .post(&format!("/campaigns/{}/cancel", urlencoding::encode(id)), &())
             .await?;
         Ok(response.json().await?)
     }
@@ -292,7 +292,7 @@ impl<'a> CampaignsResource<'a> {
     pub async fn clone(&self, id: &str) -> Result<Campaign> {
         let response = self
             .client
-            .post(&format!("/campaigns/{}/clone", id), &())
+            .post(&format!("/campaigns/{}/clone", urlencoding::encode(id)), &())
             .await?;
         Ok(response.json().await?)
     }

@@ -394,7 +394,7 @@ impl<'a> AccountResource<'a> {
                 message: "API key ID is required".to_string(),
             });
         }
-        let path = format!("/account/keys/{}/rotate", id);
+        let path = format!("/account/keys/{}/rotate", urlencoding::encode(id));
         let response = self.client.post(&path, &request).await?;
         let result: RotateApiKeyResponse = response.json().await?;
         Ok(result)

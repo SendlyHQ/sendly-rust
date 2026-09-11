@@ -1,5 +1,13 @@
 # sendly (Rust)
 
+## 4.0.1
+
+### Security
+
+- **Path parameters are percent-encoded.** Every id you pass is now encoded (`urlencoding::encode`) before it goes into the request path. An id containing `/`, `?` or `#` used to change which endpoint the request reached: an id of `../../account/keys` left its collection and hit another endpoint carrying your API key. Ordinary ids are sent byte-for-byte as before.
+
+No public type changed. The crate is on 4.0.1 because 4.0.0 was already published; the rest of the fleet is on 4.0.0.
+
 ## 4.0.0
 
 The crate moves to 4.0.0 while the rest of the SDK fleet stays on 3.x. The
@@ -9,62 +17,131 @@ and shipping them inside a minor would break `cargo update` for anyone on
 
 ### Breaking Changes
 
-- **`WebhookEvent::data` is now `Option<WebhookMessageData>`.** It is `None` for
-  lifecycle events, whose payload is not message-shaped. This fixes a bug that
-  made those events unusable: `parse_event` decoded `data.object` into
-  `WebhookMessageData`, whose `id`, `status`, `to` and `from` are required, so
-  every `rcs_*`, `whatsapp_*`, `call.*`, `brand.*`, `campaign.*`,
-  `assignment.*`, `number.*` and `port*` webhook returned
-  `ParseError("missing field `id`")`. Match on it, or use the new `object`.
+- **`WebhookEvent::data` is now `Option<WebhookMessageData>`.** It is `Some` for
+  `message.*` events and `None` for every event whose payload is not
+  message-shaped.
+
+  This is the point of the release rather than a side effect of it. Through
+  3.39.0, `parse_event` decoded `data.object` straight into
+  `WebhookMessageData`, whose `id`, `status`, `to` and `from` are all required,
+  so a payload that is not a message could not survive the decode. In this crate
+  it failed loudly: the whole `parse_event` call returned
+  `Err(WebhookError::ParseError(..))` and your handler never saw the event at
+  all. Measured against the payloads the API really sends:
+
+  - `rcs_agent.live` → ``ParseError("missing field `id`")``
+  - `contact.auto_flagged` → ``ParseError("missing field `status`")``
+  - `call.completed` → ``ParseError("unknown variant `completed`, expected one of `queued`, `sent`, `delivered`, ...")``
+  - `verification.verified` → ``ParseError("unknown variant `verified`, expected one of `queued`, `sent`, `delivered`, ...")``
+
+  That covered every `rcs_*`, `whatsapp_*`, `call.*`, `brand.*`, `campaign.*`,
+  `assignment.*`, `number.*`, `port*`, `contact*` and `verification.*` webhook.
+  The dynamically typed SDKs in the fleet carried the same bug in a quieter
+  form — they handed back a message object with every field at its default and
+  raised nothing, and `contact.auto_flagged` reported the *contact* id as the
+  message id, so a handler keyed on it acted on the wrong record. Rust at least
+  refused to guess.
+
+  After the upgrade those events parse. `data` is `None` for them, and reading a
+  message field off one no longer compiles. The compile error is the migration
+  prompt: it is what sends you to `object`, which has the real payload.
 
   ```rust
-  // before
+  // 3.39.0 — `data` was a plain WebhookMessageData
+  let event = Webhooks::parse_event(body, sig, secret, Some(ts))?;
+  // ^ for a lifecycle event this never reached the next line: it was
+  //   Err(ParseError("missing field `id`")) and `?` bailed out of the handler
   let to = event.data.to;
-  // after
-  if let Some(data) = &event.data { let to = &data.to; }
+
+  // 4.0.0 — the same call returns Ok, and the message view is optional
+  let event = Webhooks::parse_event(body, sig, secret, Some(ts))?;
+  let to = event.data.as_ref().map(|m| m.to.clone()); // None for lifecycle events
+  let agent_id = event.object["agent_id"].as_str();   // the payload that did arrive
   ```
 
-- **`WebhookEventType` gained the 20 event types the API actually emits**, plus
-  an `Unknown(String)` fallback so a type added later can never fail a parse
-  again. It is now `#[non_exhaustive]`, so add a wildcard arm to exhaustive
-  matches. Adding variants and adding `#[non_exhaustive]` are each a major
-  change on their own.
+  **The edit:** every `event.data.<field>` becomes a `match` or an `if let` on
+  the `Option`. A handler that only ever cared about `message.*` keeps its old
+  behaviour with one line at the top —
+  `let Some(message) = &event.data else { return Ok(()) };` — and a handler that
+  needs the lifecycle payloads now has them, on `object`.
+
+- **`WebhookEventType` gained the 20 event types the API actually emits** —
+  `message.read`, `conversation.*`, `draft.*`, `rcs_brand.*`, `rcs_agent.*`,
+  `whatsapp_account.*`, `whatsapp_template.*` and `call.*` — plus an
+  `Unknown(String)` fallback so a type added later can never fail a parse again.
+  It is now `#[non_exhaustive]`. Adding variants and adding `#[non_exhaustive]`
+  are each a major change on their own.
+
+  **The edit:** an exhaustive `match` on `WebhookEventType` stops compiling —
+  ``error[E0004]: non-exhaustive patterns: `_` not covered``. Add a `_ => {}`
+  arm. It is not busywork: that arm is where
+  `Unknown("something.invented_later")` lands the day the API grows an event,
+  instead of a `ParseError`.
 
 - **`message.queued` and `message.undelivered` are removed.** The API has never
-  emitted them and rejects them with a 400 when you subscribe. Other SDKs keep
-  them as deprecated for one more cycle; this crate drops them now because it is
-  taking a major anyway.
+  emitted either one and rejects both with a 400 when you subscribe, so any code
+  matching on them was dead. Other SDKs in the fleet keep them as deprecated for
+  one more cycle; this crate drops them now because it is taking a major anyway.
+
+  **The edit:** delete the `WebhookEventType::MessageQueued` and
+  `WebhookEventType::MessageUndelivered` arms, and drop the two strings from any
+  `webhooks().create(...)` / `update(...)` event list — the API answers 400 for
+  them. Note that `WebhookMessageStatus::Queued` and
+  `WebhookMessageStatus::Undelivered` are untouched: those are message
+  *statuses*, which the API does send, and they are a different enum.
 
 - **`WebhookEvent` is `#[non_exhaustive]`**, so later fields are additive.
-  Construct one only by parsing a payload.
+  Construct one only by parsing a payload; a struct literal
+  (`WebhookEvent { .. }`) no longer compiles outside this crate.
 
-- **Minimum `serde` is now 1.0.185.** `WebhookEventType` is `#[non_exhaustive]`
-  with a data-carrying variant, and deriving `Serialize` on that shape fails to
-  compile with *"cannot move out of a shared reference"* on serde 1.0.166
-  through 1.0.184. Verified by building against each boundary version.
+- **Minimum `serde` is now 1.0.185** (was `1.0`). `WebhookEventType` is
+  `#[non_exhaustive]` with a data-carrying variant, and deriving `Serialize` on
+  that shape fails to compile with *"cannot move out of a shared reference"* on
+  serde 1.0.166 through 1.0.184. Verified by building against each boundary
+  version. **The edit:** none, unless a lockfile pins you below 1.0.185, in
+  which case `cargo update -p serde` resolves it.
 
 ### Added
 
 - **`WebhookEvent::object`** carries `data.object` exactly as it arrived, for
-  every event type, and **`object_as::<T>()`** deserializes it into a type of
-  your choosing — the supported way to read a lifecycle payload.
+  every event type — message events included — and **`object_as::<T>()`**
+  deserializes it into a type of your choosing. This is the supported way to
+  read a lifecycle payload.
 
   ```rust
-  #[derive(serde::Deserialize)]
-  struct AgentLive { agent_id: String, name: String, stage: String }
+  use sendly::webhooks::{WebhookEventType, WebhookVerificationData, Webhooks};
 
-  let agent: AgentLive = event.object_as()?;
+  #[derive(serde::Deserialize)]
+  struct RcsAgentLive { agent_id: String, name: String, stage: String }
+
+  let event = Webhooks::parse_event(body, sig, secret, Some(ts))?;
+  match event.event_type {
+      WebhookEventType::RcsAgentLive => {
+          let agent: RcsAgentLive = event.object_as()?;
+          println!("{} ({}) is {}", agent.name, agent.agent_id, agent.stage);
+      }
+      WebhookEventType::VerificationVerified => {
+          // WebhookVerificationData was already declared in this crate, with
+          // nothing that could produce one. `object_as` is that thing.
+          let v: WebhookVerificationData = event.object_as()?;
+          println!("{} verified after {} attempts", v.phone, v.attempts);
+      }
+      // No struct needed for a single field: `object` is a serde_json::Value.
+      WebhookEventType::ContactAutoFlagged => {
+          let contact_id = event.object["id"].as_str().unwrap_or_default();
+          let message_id = event.object["message_id"].as_str(); // not the same id
+          println!("contact {contact_id} flagged by {message_id:?}");
+      }
+      _ => {}
+  }
   ```
 
-## Unreleased
+- Webhook handling is now documented in the README, under **Webhooks →
+  Receiving events**.
+
+## 3.39.0
 
 ### Minor Changes
-
-- **Minimum `serde` is now 1.0.185.** `WebhookEventType` is `#[non_exhaustive]` with a
-  data-carrying `Unknown` variant, and deriving `Serialize` on that shape fails to
-  compile with *"cannot move out of a shared reference"* on serde 1.0.166 through
-  1.0.184. The requirement was `1.0`, so a build resolving an older serde would not
-  compile at all. Verified by building against each boundary version.
 
 - **`RcsAgent` is now `#[non_exhaustive]`.** It is a deserialize-only response type, so this costs nothing to read it, and it means later fields (such as the `stage` added in this release) arrive as minor releases instead of breaking struct-literal construction. If you were building an `RcsAgent` by hand, construct it from a deserialized response instead.
 

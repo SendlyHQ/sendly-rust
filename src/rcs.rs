@@ -1530,7 +1530,7 @@ impl<'a> RcsBrandsResource<'a> {
         let response = self
             .client
             .patch_with_idempotency(
-                &format!("/rcs/brands/{}", id),
+                &format!("/rcs/brands/{}", urlencoding::encode(id)),
                 &request,
                 options.idempotency_key.as_deref(),
                 true,
@@ -1646,7 +1646,7 @@ impl<'a> RcsAgentsResource<'a> {
     /// # Ok(()) }
     /// ```
     pub async fn get(&self, id: &str) -> Result<RcsAgentDetailResponse> {
-        let response = self.client.get(&format!("/rcs/agents/{}", id), &[]).await?;
+        let response = self.client.get(&format!("/rcs/agents/{}", urlencoding::encode(id)), &[]).await?;
         Ok(response.json().await?)
     }
 
@@ -1728,7 +1728,7 @@ impl<'a> RcsAgentsResource<'a> {
         let response = self
             .client
             .patch_with_idempotency(
-                &format!("/rcs/agents/{}", id),
+                &format!("/rcs/agents/{}", urlencoding::encode(id)),
                 &request,
                 options.idempotency_key.as_deref(),
                 true,
@@ -1786,7 +1786,7 @@ impl<'a> RcsAgentsResource<'a> {
         let response = self
             .client
             .put_with_idempotency(
-                &format!("/rcs/agents/{}/test-devices", id),
+                &format!("/rcs/agents/{}/test-devices", urlencoding::encode(id)),
                 &serde_json::json!({ "devices": devices }),
                 options.idempotency_key.as_deref(),
                 true,
@@ -1857,7 +1857,7 @@ impl<'a> RcsAgentsResource<'a> {
         let response = self
             .client
             .post_with_idempotency(
-                &format!("/rcs/agents/{}/submit", id),
+                &format!("/rcs/agents/{}/submit", urlencoding::encode(id)),
                 &serde_json::json!({}),
                 options.idempotency_key.as_deref(),
                 true,
@@ -1917,7 +1917,7 @@ impl<'a> RcsAgentsResource<'a> {
         let response = self
             .client
             .post_with_idempotency(
-                &format!("/rcs/agents/{}/request-launch", id),
+                &format!("/rcs/agents/{}/request-launch", urlencoding::encode(id)),
                 &request.unwrap_or_default(),
                 options.idempotency_key.as_deref(),
                 true,

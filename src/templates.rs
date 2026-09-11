@@ -375,7 +375,7 @@ impl<'a> TemplatesResource<'a> {
     }
 
     pub async fn get(&self, id: &str) -> Result<Template> {
-        let response = self.client.get(&format!("/templates/{}", id), &[]).await?;
+        let response = self.client.get(&format!("/templates/{}", urlencoding::encode(id)), &[]).await?;
         Ok(response.json().await?)
     }
 
@@ -387,13 +387,13 @@ impl<'a> TemplatesResource<'a> {
     pub async fn update(&self, id: &str, request: UpdateTemplateRequest) -> Result<Template> {
         let response = self
             .client
-            .patch(&format!("/templates/{}", id), &request)
+            .patch(&format!("/templates/{}", urlencoding::encode(id)), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn delete(&self, id: &str) -> Result<DeleteTemplateResponse> {
-        let response = self.client.delete(&format!("/templates/{}", id)).await?;
+        let response = self.client.delete(&format!("/templates/{}", urlencoding::encode(id))).await?;
         let body = response.text().await?;
         if body.trim().is_empty() {
             return Ok(DeleteTemplateResponse {
@@ -407,7 +407,7 @@ impl<'a> TemplatesResource<'a> {
     pub async fn publish(&self, id: &str) -> Result<Template> {
         let response = self
             .client
-            .post(&format!("/templates/{}/publish", id), &serde_json::json!({}))
+            .post(&format!("/templates/{}/publish", urlencoding::encode(id)), &serde_json::json!({}))
             .await?;
         Ok(response.json().await?)
     }
@@ -415,7 +415,7 @@ impl<'a> TemplatesResource<'a> {
     pub async fn unpublish(&self, id: &str) -> Result<Template> {
         let response = self
             .client
-            .post(&format!("/verify/templates/{}/unpublish", id), &())
+            .post(&format!("/verify/templates/{}/unpublish", urlencoding::encode(id)), &())
             .await?;
         Ok(response.json().await?)
     }
@@ -423,7 +423,7 @@ impl<'a> TemplatesResource<'a> {
     pub async fn clone(&self, id: &str) -> Result<Template> {
         let response = self
             .client
-            .post(&format!("/templates/{}/clone", id), &())
+            .post(&format!("/templates/{}/clone", urlencoding::encode(id)), &())
             .await?;
         Ok(response.json().await?)
     }
@@ -436,7 +436,7 @@ impl<'a> TemplatesResource<'a> {
         let request = CloneRequest { name: name.into() };
         let response = self
             .client
-            .post(&format!("/templates/{}/clone", id), &request)
+            .post(&format!("/templates/{}/clone", urlencoding::encode(id)), &request)
             .await?;
         Ok(response.json().await?)
     }

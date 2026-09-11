@@ -22,7 +22,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sendly = "3.36.0"
+sendly = "4.0.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -315,6 +315,76 @@ for event_type in &event_types {
     println!("Event: {}", event_type);
 }
 ```
+
+### Receiving events
+
+`Webhooks::parse_event` verifies the signature and decodes the envelope. Sendly
+sends two shapes of payload, and the difference matters:
+
+- **Message events** (`message.*`) carry a message. `WebhookEvent::data` holds
+  the typed `WebhookMessageData` view of it.
+- **Everything else** — `rcs_*`, `whatsapp_*`, `call.*`, `brand.*`, `campaign.*`,
+  `assignment.*`, `number.*`, `port*`, `contact*` and `verification.*` — carries a
+  different object entirely. `data` is `None` for those, and the payload is on
+  `WebhookEvent::object`: `data.object` exactly as it arrived, for every event
+  type. `event.object_as::<T>()` deserializes it into a type of your choosing.
+
+```rust
+use sendly::webhooks::{WebhookError, WebhookEventType, WebhookVerificationData, Webhooks};
+
+// `rcs_agent.live` sends { agent_id, name, stage, organization_id }
+#[derive(serde::Deserialize)]
+struct RcsAgentLive {
+    agent_id: String,
+    name: String,
+    stage: String,
+}
+
+fn handle_webhook(body: &str, signature: &str, timestamp: &str) -> Result<(), WebhookError> {
+    let secret = std::env::var("SENDLY_WEBHOOK_SECRET").unwrap();
+    let event = Webhooks::parse_event(body, signature, &secret, Some(timestamp))?;
+
+    match event.event_type {
+        // Message events: the typed message view is populated.
+        WebhookEventType::MessageDelivered | WebhookEventType::MessageFailed => {
+            if let Some(message) = &event.data {
+                println!("{} -> {} ({:?})", message.id, message.to, message.status);
+            }
+        }
+
+        // Lifecycle event: `data` is `None`, the payload is on `object`.
+        WebhookEventType::RcsAgentLive => {
+            let agent: RcsAgentLive = event.object_as()?;
+            println!("agent {} ({}) is {}", agent.name, agent.agent_id, agent.stage);
+        }
+
+        // Verification events decode into the type the crate already ships.
+        WebhookEventType::VerificationVerified => {
+            let verification: WebhookVerificationData = event.object_as()?;
+            println!("{} verified after {} attempts", verification.phone, verification.attempts);
+        }
+
+        // Or read one field straight off the raw object, no struct needed.
+        // Note `id` here is the *contact* id; the message that triggered the
+        // flag is on `message_id`.
+        WebhookEventType::ContactAutoFlagged => {
+            let contact_id = event.object["id"].as_str().unwrap_or_default();
+            let phone = event.object["phone_number"].as_str().unwrap_or_default();
+            println!("contact {contact_id} ({phone}) auto-flagged");
+        }
+
+        // `WebhookEventType` is `#[non_exhaustive]`, so a wildcard arm is required.
+        _ => {}
+    }
+
+    Ok(())
+}
+```
+
+`object_as` needs `serde` with the `derive` feature in your own `Cargo.toml`.
+`object` is a `serde_json::Value`, so indexing it needs nothing extra, and an
+event type this SDK version doesn't know still parses — it arrives as
+`WebhookEventType::Unknown(String)` with its payload intact on `object`.
 
 ## Account & Credits
 

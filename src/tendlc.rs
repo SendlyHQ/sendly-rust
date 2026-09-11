@@ -531,7 +531,7 @@ impl<'a> TenDlcResource<'a> {
     pub async fn get_brand(&self, id: &str) -> Result<TenDlcBrandResponse> {
         let response = self
             .client
-            .get(&format!("/tendlc/brands/{}", id), &[])
+            .get(&format!("/tendlc/brands/{}", urlencoding::encode(id)), &[])
             .await?;
         Ok(response.json().await?)
     }
@@ -542,7 +542,7 @@ impl<'a> TenDlcResource<'a> {
         let response = self
             .client
             .get(
-                &format!("/tendlc/brands/{}/qualify/{}", brand_id, use_case),
+                &format!("/tendlc/brands/{}/qualify/{}", urlencoding::encode(brand_id), urlencoding::encode(use_case)),
                 &[],
             )
             .await?;
@@ -574,7 +574,7 @@ impl<'a> TenDlcResource<'a> {
     pub async fn get_campaign(&self, id: &str) -> Result<TenDlcCampaignResponse> {
         let response = self
             .client
-            .get(&format!("/tendlc/campaigns/{}", id), &[])
+            .get(&format!("/tendlc/campaigns/{}", urlencoding::encode(id)), &[])
             .await?;
         Ok(response.json().await?)
     }
@@ -592,7 +592,7 @@ impl<'a> TenDlcResource<'a> {
         let response = self
             .client
             .post(
-                &format!("/tendlc/campaigns/{}/assign", campaign_id),
+                &format!("/tendlc/campaigns/{}/assign", urlencoding::encode(campaign_id)),
                 &serde_json::json!({ "phoneNumber": phone_number }),
             )
             .await?;

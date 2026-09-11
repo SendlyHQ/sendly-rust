@@ -396,7 +396,7 @@ impl<'a> ContactsResource<'a> {
     }
 
     pub async fn get(&self, id: &str) -> Result<Contact> {
-        let response = self.client.get(&format!("/contacts/{}", id), &[]).await?;
+        let response = self.client.get(&format!("/contacts/{}", urlencoding::encode(id)), &[]).await?;
         Ok(response.json().await?)
     }
 
@@ -408,13 +408,13 @@ impl<'a> ContactsResource<'a> {
     pub async fn update(&self, id: &str, request: UpdateContactRequest) -> Result<Contact> {
         let response = self
             .client
-            .patch(&format!("/contacts/{}", id), &request)
+            .patch(&format!("/contacts/{}", urlencoding::encode(id)), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
-        self.client.delete(&format!("/contacts/{}", id)).await?;
+        self.client.delete(&format!("/contacts/{}", urlencoding::encode(id))).await?;
         Ok(())
     }
 
@@ -426,7 +426,7 @@ impl<'a> ContactsResource<'a> {
     pub async fn mark_valid(&self, id: &str) -> Result<Contact> {
         let response = self
             .client
-            .post(&format!("/contacts/{}/mark-valid", id), &serde_json::json!({}))
+            .post(&format!("/contacts/{}/mark-valid", urlencoding::encode(id)), &serde_json::json!({}))
             .await?;
         Ok(response.json().await?)
     }
@@ -502,7 +502,7 @@ impl<'a> ContactListsResource<'a> {
     pub async fn get(&self, id: &str) -> Result<ContactList> {
         let response = self
             .client
-            .get(&format!("/contact-lists/{}", id), &[])
+            .get(&format!("/contact-lists/{}", urlencoding::encode(id)), &[])
             .await?;
         Ok(response.json().await?)
     }
@@ -515,14 +515,14 @@ impl<'a> ContactListsResource<'a> {
     pub async fn update(&self, id: &str, request: UpdateContactListRequest) -> Result<ContactList> {
         let response = self
             .client
-            .patch(&format!("/contact-lists/{}", id), &request)
+            .patch(&format!("/contact-lists/{}", urlencoding::encode(id)), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
         self.client
-            .delete(&format!("/contact-lists/{}", id))
+            .delete(&format!("/contact-lists/{}", urlencoding::encode(id)))
             .await?;
         Ok(())
     }
@@ -530,7 +530,7 @@ impl<'a> ContactListsResource<'a> {
     pub async fn add_contacts(&self, list_id: &str, contact_ids: Vec<String>) -> Result<()> {
         let request = AddContactsRequest { contact_ids };
         self.client
-            .post(&format!("/contact-lists/{}/contacts", list_id), &request)
+            .post(&format!("/contact-lists/{}/contacts", urlencoding::encode(list_id)), &request)
             .await?;
         Ok(())
     }
@@ -538,9 +538,7 @@ impl<'a> ContactListsResource<'a> {
     pub async fn remove_contact(&self, list_id: &str, contact_id: &str) -> Result<()> {
         self.client
             .delete(&format!(
-                "/contact-lists/{}/contacts/{}",
-                list_id, contact_id
-            ))
+                "/contact-lists/{}/contacts/{}", urlencoding::encode(list_id), urlencoding::encode(contact_id)))
             .await?;
         Ok(())
     }

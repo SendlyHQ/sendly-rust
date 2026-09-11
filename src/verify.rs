@@ -351,7 +351,7 @@ impl<'a> VerifyResource<'a> {
     pub async fn resend(&self, id: &str) -> Result<SendVerificationResponse> {
         let response = self
             .client
-            .post(&format!("/verify/{}/resend", id), &())
+            .post(&format!("/verify/{}/resend", urlencoding::encode(id)), &())
             .await?;
         Ok(response.json().await?)
     }
@@ -362,13 +362,13 @@ impl<'a> VerifyResource<'a> {
         };
         let response = self
             .client
-            .post(&format!("/verify/{}/check", id), &request)
+            .post(&format!("/verify/{}/check", urlencoding::encode(id)), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn get(&self, id: &str) -> Result<Verification> {
-        let response = self.client.get(&format!("/verify/{}", id), &[]).await?;
+        let response = self.client.get(&format!("/verify/{}", urlencoding::encode(id)), &[]).await?;
         Ok(response.json().await?)
     }
 
