@@ -156,6 +156,14 @@ pub enum WebhookEventType {
     CallCompleted,
     #[serde(rename = "call.recording.ready")]
     CallRecordingReady,
+    #[serde(rename = "short_code.action_required")]
+    ShortCodeActionRequired,
+    #[serde(rename = "short_code.rejected")]
+    ShortCodeRejected,
+    #[serde(rename = "short_code.filed")]
+    ShortCodeFiled,
+    #[serde(rename = "short_code.live")]
+    ShortCodeLive,
     /// An event type this SDK version does not know about.
     #[serde(untagged)]
     Unknown(String),
