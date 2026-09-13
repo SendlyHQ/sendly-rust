@@ -22,7 +22,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sendly = "4.0.1"
+sendly = "4.1.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -860,6 +860,122 @@ client.messages().send_rcs(
         .with_fallback_to_sms(false),
 ).await?;
 ```
+
+## Voice Calls
+
+Place phone calls that one of your AI agents handles, follow them, end one
+early, and fetch recordings. Calls go to US and Canadian numbers from a
+workspace number that is voice-enabled in the dashboard (Calls → Settings) and
+has an emergency address registered. Agents are created in the dashboard under
+Calls → Agents. Reads need the `calls:read` scope and writes `calls:write`;
+placing or ending a call also needs a live API key.
+
+Calls are billed per started minute, prepaid from your credit balance: 2
+credits/min outbound plus 8 credits/min while an AI agent is on the line, so an
+agent-handled call is 10 credits/min ($0.10). Unanswered calls cost nothing.
+Voice is being enabled workspace by workspace; until it is on for yours, these
+calls answer 404 `voice_not_enabled` (`Error::NotFound`).
+
+```rust
+use sendly::{CallRecordingStatus, CallStatus, CreateCallRequest, ListCallsOptions, Sendly};
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+// Find a number to call from: voice_enabled / voice_mode are on each owned number
+let owned = client.numbers().list().await?;
+let from = owned.numbers.iter().find(|n| n.voice_enabled == Some(true)).expect("a voice-enabled number");
+
+// Place a call handled by an agent (returns while it is still ringing)
+let call = client
+    .calls()
+    .create(
+        CreateCallRequest::new("+15555550123", "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b")
+            .from_number(&from.phone_number)
+            .context("You are calling Jordan to confirm the 3pm appointment on Tuesday.")
+            .metadata_entry("crmId", "lead_8812"),
+    )
+    .await?;
+println!("{} {}", call.id, call.status); // ... ringing
+
+// Follow it: agent calls carry a transcript on get()
+let call = client.calls().get(&call.id).await?;
+println!("{} {:?} {} credits", call.status, call.hangup_class, call.credits_charged);
+for line in call.transcript.unwrap_or_default() {
+    println!("[{}ms] {}: {}", line.at_ms, line.speaker, line.text);
+}
+
+// List completed outbound calls, newest first
+let page = client
+    .calls()
+    .list(Some(ListCallsOptions::new().status(CallStatus::Completed).limit(20)))
+    .await?;
+println!("{} of {} (more: {})", page.data.len(), page.pagination.total, page.pagination.has_more);
+
+// End a call early (ringing -> cancelled, active -> completed; ended calls come back unchanged)
+client.calls().hangup(&call.id).await?;
+
+// Fetch the recording: the URL is signed and valid for five minutes
+let recording = client.calls().recording(&call.id).await?;
+if recording.status == CallRecordingStatus::Ready {
+    println!("{} until {}", recording.url.unwrap(), recording.expires_at.unwrap());
+}
+```
+
+Refusals map onto the SDK's error variants: 402 `insufficient_credits` is
+`Error::InsufficientCredits`; 404s (`voice_not_enabled`, `call_not_found`,
+`agent_not_found`, `number_not_found`) are `Error::NotFound`; 400s
+(`agent_required`, `invalid_number`, `invalid_metadata`, `from_number_required`,
+`destination_not_supported`) are `Error::Validation`; 429s (`rate_limit_exceeded`,
+`daily_call_limit`) are `Error::RateLimit`; everything else arrives as
+`Error::Api` with `code` set, so you can match on it:
+
+```rust
+use sendly::Error;
+
+match client.calls().create(request).await {
+    Ok(call) => println!("ringing {}", call.id),
+    Err(Error::InsufficientCredits { message }) => eprintln!("top up first: {}", message),
+    Err(Error::Api { code: Some(code), message, .. }) => match code.as_str() {
+        "e911_required" => eprintln!("register an emergency address in the dashboard: {}", message),
+        "lines_busy" => eprintln!("retry shortly: {}", message),
+        "agent_disabled" | "no_voice_number" | "live_key_required" => eprintln!("{}: {}", code, message),
+        _ => eprintln!("{}: {}", code, message),
+    },
+    Err(e) => eprintln!("{}", e),
+}
+```
+
+### Call object
+
+```rust
+call.id                // String (uuid)
+call.kind              // CallKind: Pstn | Internal
+call.direction         // CallDirection: Inbound | Outbound
+call.status            // CallStatus: Ringing | Active | Completed | NoAnswer | Busy | Cancelled | Declined | Failed | Suspended
+call.handled_by        // CallHandledBy: Agent | Dashboard
+call.agent_id          // Option<String>
+call.from_number       // Option<String> (E.164; None on internal calls)
+call.to                // Option<String>
+call.caller_name       // Option<String>
+call.callee_name       // Option<String>
+call.started_at        // String (ISO 8601)
+call.answered_at       // Option<String>
+call.ended_at          // Option<String>
+call.duration_secs     // i64 (answered seconds; 0 until ended)
+call.credits_charged   // i64
+call.billing           // CallBilling: Metered | Settled | Unbilled
+call.hangup_class      // Option<String> (why it ended, e.g. "normal", "ring_timeout", "credits_exhausted")
+call.recording_status  // Option<CallRecordingStatus>: Recording | Ready | Failed
+call.metadata          // HashMap<String, String>
+call.transcript        // Option<Vec<CallTranscriptLine>> (get() on agent calls only)
+
+// Helper methods
+call.is_live()   // ringing or active
+call.is_ended()  // reached a terminal status
+```
+
+Every enum has an `Unknown` fallback, so a value added by a later API release
+never fails decoding.
 
 ## Error Handling
 

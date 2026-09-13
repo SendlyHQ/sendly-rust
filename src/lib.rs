@@ -57,6 +57,7 @@
 
 mod account_resource;
 pub mod business_upgrade;
+mod calls;
 mod campaigns;
 mod client;
 mod contacts;
@@ -82,6 +83,7 @@ pub mod webhooks;
 
 pub use account_resource::AccountResource;
 pub use business_upgrade::BusinessUpgradeResource;
+pub use calls::*;
 pub use campaigns::*;
 pub use client::{Sendly, SendlyConfig};
 pub use contacts::*;

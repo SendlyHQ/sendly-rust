@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use crate::account_resource::AccountResource;
 use crate::business_upgrade::BusinessUpgradeResource;
+use crate::calls::CallsResource;
 use crate::campaigns::CampaignsResource;
 use crate::contacts::ContactsResource;
 use crate::conversations::ConversationsResource;
@@ -26,7 +27,7 @@ use crate::whatsapp::WhatsAppResource;
 pub const DEFAULT_BASE_URL: &str = "https://sendly.live/api/v1";
 
 /// SDK version.
-pub const VERSION: &str = "4.0.1";
+pub const VERSION: &str = "4.1.0";
 
 /// Configuration for the Sendly client.
 #[derive(Debug, Clone)]
@@ -239,6 +240,11 @@ impl Sendly {
     /// Returns the RCS resource.
     pub fn rcs(&self) -> RcsResource {
         RcsResource::new(self)
+    }
+
+    /// Returns the Calls resource (phone calls handled by your AI agents).
+    pub fn calls(&self) -> CallsResource {
+        CallsResource::new(self)
     }
 
     /// Makes a GET request.

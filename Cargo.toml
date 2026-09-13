@@ -1,6 +1,6 @@
 [package]
 name = "sendly"
-version = "4.0.1"
+version = "4.1.0"
 edition = "2021"
 authors = ["Sendly <support@sendly.live>"]
 description = "Official Rust SDK for the Sendly SMS API"

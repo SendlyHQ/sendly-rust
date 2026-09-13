@@ -1,5 +1,33 @@
 # sendly (Rust)
 
+## 4.1.0
+
+### Minor Changes
+
+- **Voice calls: `client.calls()`.** Place a phone call that one of your workspace's AI agents handles, follow it, end it early, and fetch the recording. Five methods: `create` (`POST /calls`), `list` (`GET /calls`, filters and paging), `get` (`GET /calls/{id}`, with the `transcript` on agent-handled calls), `hangup` (`POST /calls/{id}/hangup`; a ringing call becomes `cancelled`, an active one `completed`, an ended one is returned unchanged) and `recording` (`GET /calls/{id}/recording`; the URL is signed and valid for five minutes). Calls go to US and Canadian numbers from a number that is voice-enabled in the dashboard and has an emergency address registered; they are billed per started minute from your credit balance (10 credits/min for an agent-handled outbound call; unanswered calls cost nothing). Reads need the `calls:read` scope, writes `calls:write` and a live API key. Voice is being enabled workspace by workspace; until it is on for yours the routes answer 404 `voice_not_enabled` (`Error::NotFound`).
+
+  ```rust
+  use sendly::{CreateCallRequest, Sendly};
+
+  let call = client
+      .calls()
+      .create(
+          CreateCallRequest::new("+15555550123", "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b")
+              .from_number("+15555550188")
+              .context("You are calling Jordan to confirm the 3pm appointment on Tuesday.")
+              .metadata_entry("crmId", "lead_8812"),
+      )
+      .await?;
+  let call = client.calls().get(&call.id).await?;
+  for line in call.transcript.unwrap_or_default() {
+      println!("{}: {}", line.speaker, line.text);
+  }
+  ```
+- **Typed call models.** `Call` (with `is_live()` / `is_ended()`), `CallTranscriptLine`, `CallListResponse` + `CallPagination` (`total`, `limit`, `offset`, `has_more`), `CallRecording`, the request builders `CreateCallRequest` and `ListCallsOptions`, and the enums `CallStatus`, `CallDirection`, `CallKind`, `CallHandledBy`, `CallBilling`, `CallRecordingStatus` and `CallTranscriptSpeaker`, each with an `Unknown` fallback so a value this version doesn't know never fails decoding. Because `from` is a Rust keyword, the wire field `from` is `from_number` on `Call`, `CreateCallRequest` and `ListCallsOptions`. The response types are `#[non_exhaustive]`, so fields added later arrive as minor releases.
+- **Idempotency keys on call writes.** `create` and `hangup` carry an auto-generated `Idempotency-Key` like every other POST; `create_with_options` and `hangup_with_options` take `IdempotentRequestOptions` for your own key, so a retried request never places a second call.
+- **`OwnedNumber::voice_enabled` and `OwnedNumber::voice_mode`.** `numbers().list()` and `numbers().get()` now read the voice fields the API reports on each number (`voice_mode` is `"none"`, `"ring_dashboard"` or `"agent"`), so you can find a number to call from. `OwnedNumber` is now `#[non_exhaustive]`; it is a deserialize-only response type, so this costs nothing to read it and means later fields arrive as minor releases instead of breaking struct-literal construction.
+- **Call webhooks.** The `call.started`, `call.completed` and `call.recording.ready` objects now carry `billing` and `metadata` (the pairs you attached on create). The crate's `WebhookEvent::object` already exposes the raw object, so both read as `event.object["billing"]` and `event.object["metadata"]`; no type changed.
+
 ## 4.0.1
 
 ### Security

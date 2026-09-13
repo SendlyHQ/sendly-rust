@@ -260,3 +260,46 @@ async fn test_buy_with_action_code() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap().status, "provisioning");
 }
+
+// ==================== voice fields ====================
+
+#[tokio::test]
+async fn test_list_owned_reads_voice_fields() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/numbers"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "numbers": [
+                {
+                    "id": "num_voice1",
+                    "phoneNumber": "+15555550188",
+                    "status": "active",
+                    "source": "purchased",
+                    "countryCode": "US",
+                    "phoneNumberType": "local",
+                    "monthlyCostCents": 250,
+                    "voiceEnabled": true,
+                    "voiceMode": "agent"
+                },
+                {
+                    "id": "num_sms1",
+                    "phoneNumber": "+15555550199",
+                    "status": "active",
+                    "source": "purchased",
+                    "countryCode": "US",
+                    "phoneNumberType": "toll_free",
+                    "monthlyCostCents": 110
+                }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let response = client.numbers().list().await.expect("list should succeed");
+
+    assert_eq!(response.numbers[0].voice_enabled, Some(true));
+    assert_eq!(response.numbers[0].voice_mode.as_deref(), Some("agent"));
+    assert_eq!(response.numbers[1].voice_enabled, None);
+    assert_eq!(response.numbers[1].voice_mode, None);
+}

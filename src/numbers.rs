@@ -70,6 +70,7 @@ pub struct AvailableNumbersResponse {
 
 /// A phone number you own.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct OwnedNumber {
     /// Unique number identifier.
     pub id: String,
@@ -113,6 +114,15 @@ pub struct OwnedNumber {
     /// When the number is scheduled to be released, as an ISO-8601 timestamp.
     #[serde(default, alias = "scheduledReleaseAt")]
     pub scheduled_release_at: Option<String>,
+    /// Whether the number can take and place phone calls. Switched on in
+    /// the dashboard (Calls → Settings); absent on responses that predate
+    /// voice (then `None`).
+    #[serde(default, alias = "voiceEnabled")]
+    pub voice_enabled: Option<bool>,
+    /// How the number answers: `"none"`, `"ring_dashboard"` (the team
+    /// answers in the dashboard) or `"agent"` (an AI agent answers).
+    #[serde(default, alias = "voiceMode")]
+    pub voice_mode: Option<String>,
 }
 
 /// Response from [`NumbersResource::list`].
