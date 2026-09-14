@@ -186,15 +186,20 @@ pub enum ListHealthEventSource {
 /// Message status in webhook events
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum WebhookMessageStatus {
     Queued,
     Sent,
     Delivered,
+    Read,
     Failed,
     Bounced,
     Retrying,
     Received,
     Undelivered,
+    /// A status this build does not know; the typed message view survives.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 /// Data payload for message webhook events
@@ -575,6 +580,27 @@ mod tests {
         agent_id: String,
         name: String,
         stage: String,
+    }
+
+    #[test]
+    fn a_read_receipt_keeps_its_typed_status() {
+        let payload = r#"{"id":"evt_r","type":"message.read","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":"msg_1","to":"+15555550100","from":"+15555550199","status":"read","segments":1,"credits_used":2}}}"#;
+        let sig = Webhooks::generate_signature(payload, "s", None);
+        let event = Webhooks::parse_event(payload, &sig, "s", None).expect("should parse");
+
+        let data = event.data.expect("a read receipt is a message event");
+        assert_eq!(data.status, WebhookMessageStatus::Read);
+    }
+
+    #[test]
+    fn an_unknown_message_status_does_not_drop_the_message_view() {
+        let payload = r#"{"id":"evt_s","type":"message.delivered","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":"msg_1","to":"+15555550100","from":"+15555550199","status":"scheduled","segments":1,"credits_used":2}}}"#;
+        let sig = Webhooks::generate_signature(payload, "s", None);
+        let event = Webhooks::parse_event(payload, &sig, "s", None).expect("should parse");
+
+        let data = event.data.expect("a real message must keep its typed view");
+        assert_eq!(data.id, "msg_1");
+        assert_eq!(data.status, WebhookMessageStatus::Unknown("scheduled".to_string()));
     }
 
     // Regression: this used to return ParseError("missing field `id`"), so every

@@ -22,7 +22,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sendly = "4.1.0"
+sendly = "5.0.0"
 tokio = { version = "1", features = ["full"] }
 ```
 

@@ -1,6 +1,11 @@
 # sendly (Rust)
 
-## 4.1.0
+## 5.0.0
+
+### Major Changes
+
+- **Open enums.** `MessageStatus`, `WebhookMessageStatus` and `OwnedNumber` are now `#[non_exhaustive]`, and both status enums gain an `Unknown` variant that absorbs any value this build does not know. Before this, `MessageStatus` had no `Received`, so `messages().list()` failed to deserialise for any workspace with inbound traffic (the API lists inbound rows by default), and `WebhookMessageStatus` had no `Read`, so every RCS and WhatsApp `message.read` webhook lost its typed message view. Adding variants to a closed enum is a breaking change under Cargo's semver rules, which is why this is a major: exhaustive `match` statements on these enums need a wildcard arm, and `OwnedNumber` can no longer be constructed or destructured exhaustively outside the crate. No method signatures changed.
+- `MessageStatus::Received` and `WebhookMessageStatus::Read` are new variants.
 
 ### Minor Changes
 

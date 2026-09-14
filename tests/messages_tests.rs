@@ -680,3 +680,25 @@ async fn test_iter_error_handling() {
         panic!("Expected error from stream");
     }
 }
+
+#[tokio::test]
+async fn test_list_keeps_inbound_and_unknown_statuses() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [
+                { "id": "msg_in", "to": "+15555550100", "text": "hi", "status": "received", "segments": 1, "creditsUsed": 0, "isSandbox": false },
+                { "id": "msg_new", "to": "+15555550100", "text": "hi", "status": "scheduled", "segments": 1, "creditsUsed": 0, "isSandbox": false }
+            ],
+            "count": 2
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let list = client.messages().list(None).await.expect("inbound rows must deserialise");
+
+    assert_eq!(list.data[0].status, MessageStatus::Received);
+    assert_eq!(list.data[1].status, MessageStatus::Unknown);
+}

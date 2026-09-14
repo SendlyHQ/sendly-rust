@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 /// Message delivery status.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum MessageStatus {
     /// Message is queued for delivery.
     Queued,
@@ -19,6 +20,11 @@ pub enum MessageStatus {
     Bounced,
     /// Message is being retried after a transient failure.
     Retrying,
+    /// An inbound message received on one of your numbers.
+    Received,
+    /// A status this build does not know; the message still deserialises.
+    #[serde(other)]
+    Unknown,
 }
 
 impl std::fmt::Display for MessageStatus {
@@ -31,6 +37,8 @@ impl std::fmt::Display for MessageStatus {
             MessageStatus::Failed => write!(f, "failed"),
             MessageStatus::Bounced => write!(f, "bounced"),
             MessageStatus::Retrying => write!(f, "retrying"),
+            MessageStatus::Received => write!(f, "received"),
+            MessageStatus::Unknown => write!(f, "unknown"),
         }
     }
 }
