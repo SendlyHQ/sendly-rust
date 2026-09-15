@@ -412,6 +412,9 @@ impl<'a> TemplatesResource<'a> {
         Ok(response.json().await?)
     }
 
+    #[deprecated(
+        note = "The API has no unpublish route, so this call fails with a 404. To retire a published template, create and publish a replacement, then delete this one."
+    )]
     pub async fn unpublish(&self, id: &str) -> Result<Template> {
         let response = self
             .client
