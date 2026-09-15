@@ -453,7 +453,12 @@ impl Webhooks {
         // to fail for those. Failing the whole parse there — which is what this
         // used to do, with "missing field `id`" — made every RCS, WhatsApp,
         // voice, 10DLC, number and porting webhook unreadable.
-        let msg_data: Option<WebhookMessageData> =
+        let is_message_event = raw["type"]
+            .as_str()
+            .map_or(false, |t| t.starts_with("message."));
+        let msg_data: Option<WebhookMessageData> = if !is_message_event {
+            None
+        } else {
             match serde_json::from_value::<WebhookMessageData>(obj_val.clone()) {
                 Ok(mut d) => {
                     if d.id.is_empty() {
@@ -464,7 +469,8 @@ impl Webhooks {
                     Some(d)
                 }
                 Err(_) => None,
-            };
+            }
+        };
 
         let created = if !raw["created"].is_null() {
             raw["created"].clone()
@@ -662,6 +668,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("call event should parse: {e:?}"));
             let obj: Value = event.object_as().expect("object_as");
             assert_eq!(obj["object"], "call");
+            assert!(event.data.is_none(), "a call event has no message view");
         }
     }
 

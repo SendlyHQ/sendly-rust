@@ -3,7 +3,9 @@
 //!
 //! A workspace phone number can take and place phone calls. Over the API a
 //! call is placed to a US or Canadian number and answered by one of the
-//! workspace's AI agents (configured in the dashboard under Calls → Agents).
+//! workspace's AI agents (created with
+//! [`VoiceResource::agents`](crate::VoiceResource::agents) or in the
+//! dashboard under Calls → Agents).
 //! Reads need the `calls:read` scope and writes `calls:write`; placing or
 //! ending a call also needs a live API key (a test key answers 403
 //! `live_key_required`).
@@ -12,8 +14,10 @@
 //! prepaid from the workspace balance: an outbound call costs 2 credits/min,
 //! plus 8 credits/min while an AI agent is on the line, so an agent-handled
 //! outbound call is 10 credits/min. Unanswered calls cost nothing. The
-//! `from` number must be voice-enabled in the dashboard (Calls → Settings)
-//! and have an emergency address registered before it can place calls.
+//! `from` number must be voice-enabled and have an emergency address
+//! registered before it can place calls; set both up with
+//! [`VoiceNumbersResource`](crate::VoiceNumbersResource) or in the dashboard
+//! (Calls → Settings).
 //!
 //! Voice is being enabled workspace by workspace; until it is on for yours,
 //! every call route answers 404 `voice_not_enabled`
@@ -432,7 +436,8 @@ pub struct CallListResponse {
 /// `url`, `expires_at` and `content_type` are `Some` only when `status` is
 /// [`CallRecordingStatus::Ready`]. The URL is signed and valid for five
 /// minutes from the moment of the request. Recordings are Ogg/Opus; agent
-/// calls are recorded dual-channel (caller left, agent right).
+/// calls are recorded dual-channel, with the agent on the left channel and
+/// the other party on the right.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -633,9 +638,9 @@ impl ListCallsOptions {
 /// ([`hangup`](Self::hangup)) and fetch the recording
 /// ([`recording`](Self::recording)). Configuration (switching voice on for
 /// a number, choosing how it answers, registering an emergency address,
-/// creating agents) is done in the dashboard; use
-/// [`NumbersResource::list`](crate::NumbersResource::list) and read
-/// `voice_enabled` / `voice_mode` to find a number to call from.
+/// creating agents) lives on [`VoiceResource`](crate::VoiceResource); use
+/// [`VoiceNumbersResource::list`](crate::VoiceNumbersResource::list) and
+/// read `voice_enabled` / `voice_mode` to find a number to call from.
 ///
 /// Refusals arrive as [`Error`] variants: 402 `insufficient_credits` is
 /// [`Error::InsufficientCredits`], 404s (`voice_not_enabled`,

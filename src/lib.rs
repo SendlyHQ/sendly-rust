@@ -76,6 +76,7 @@ mod models;
 mod templates;
 mod tendlc;
 mod verify;
+mod voice;
 mod webhook_resource;
 mod whatsapp;
 
@@ -102,5 +103,6 @@ pub use rcs::*;
 pub use templates::*;
 pub use tendlc::*;
 pub use verify::*;
+pub use voice::*;
 pub use webhook_resource::WebhooksResource;
 pub use whatsapp::*;

@@ -1,5 +1,52 @@
 # sendly (Rust)
 
+## 5.1.0
+
+### Minor Changes
+
+- **Voice configuration: `client.voice()`.** Everything a call depends on can now be set up from code instead of only in the dashboard. Three sub-resources:
+  - `voice().numbers()`: `list` (`GET /voice/numbers`), `get` (`GET /voice/numbers/{number}`), `update` (`PATCH /voice/numbers/{number}`: switch voice on or off, choose `VoiceMode::RingDashboard` or `VoiceMode::Agent`, point the number at an agent) and `register_emergency_address` (`POST /voice/numbers/{number}/emergency-address`). `{number}` is the number's id or its E.164 phone number; the SDK percent-encodes it, so `+15555550188` goes out as `%2B15555550188`. A US or Canadian number needs an emergency address before it can place calls; the first registration adds $1.50 a month to the number.
+  - `voice().agents()`: `list`, `create` (201), `get`, `update` and `delete` on `/voice/agents`. Each agent gets its own scoped sending key so it can text callers (`can_send_sms`), and a workspace can have up to 20 (409 `agent_limit`). An agent that still answers a number can't be deleted (409 `agent_in_use`): point those numbers at another agent or back to the team first.
+  - `voice().voices()`: `list` (`GET /voice/voices`), the voices an agent can speak with.
+
+  ```rust
+  use sendly::{
+      CreateVoiceAgentRequest, RegisterEmergencyAddressRequest, UpdateVoiceNumberRequest, VoiceMode,
+  };
+
+  let agent = client
+      .voice()
+      .agents()
+      .create(CreateVoiceAgentRequest::new("Front desk").greeting("Thanks for calling Acme, how can I help?"))
+      .await?;
+  client
+      .voice()
+      .numbers()
+      .register_emergency_address(
+          "+15555550188",
+          RegisterEmergencyAddressRequest::new("500 Example Ave", "Austin", "TX", "78701"),
+      )
+      .await?;
+  client
+      .voice()
+      .numbers()
+      .update(
+          "+15555550188",
+          UpdateVoiceNumberRequest::new().voice_enabled(true).voice_mode(VoiceMode::Agent).agent_id(&agent.id),
+      )
+      .await?;
+  ```
+- **Typed voice models.** `VoiceNumber`, `VoiceNumberEmergencyAddress` (with `is_active()`), `EmergencyAddress`, `VoiceNumberRates`, `VoiceNumberListResponse`, `VoiceAgent`, `VoiceAgentTools`, `VoiceAgentListResponse`, `DeletedVoiceAgent`, `Voice`, `VoiceListResponse` and the `VoiceMode` enum, which has an `Unknown` fallback so a mode this version doesn't know never fails decoding. The response types and `VoiceMode` are `#[non_exhaustive]`. Requests are builders: `UpdateVoiceNumberRequest`, `RegisterEmergencyAddressRequest`, `CreateVoiceAgentRequest`, `UpdateVoiceAgentRequest` and `VoiceAgentToolsInput`. Unset fields are left out of the request, and `clear_agent_id()` / `clear_transfer_to()` send `null`.
+- **Idempotency keys on every voice write.** `update`, `register_emergency_address`, `create` and `delete` carry an auto-generated `Idempotency-Key`; each has a `*_with_options` variant that takes `IdempotentRequestOptions` for your own key.
+- Reads need the `calls:read` scope, writes `calls:write` and a live API key. Refusals map as they do for calls: 404s (`voice_not_enabled`, `number_not_found`, `agent_not_found`) are `Error::NotFound`; 400s (`invalid_request`, `invalid_voice_mode`, `agent_required`, `invalid_address`, `e911_not_applicable`) and 422 `invalid_address` (the address couldn't be validated) are `Error::Validation`; everything else (403 `forbidden` / `live_key_required`, 409 `agent_disabled` / `agent_limit` / `agent_in_use`, 502 `voice_attach_failed` / `carrier_refused`, 503 `voice_unavailable`) is `Error::Api` with `code` set.
+
+### Patch Changes
+
+- `WebhookEvent::data` is now `None` for every event that is not a `message.*` event. Call events whose `from` and `to` are phone numbers, such as `call.completed`, used to come back with a fabricated message view (`segments` 1, `credits_used` 0); read them through `WebhookEvent::object` or `object_as` instead.
+
+- **Recording channels.** The `CallRecording` docs had the channels the wrong way round. Agent calls are recorded with the agent on the left channel and the other party on the right.
+- The `CallsResource` and `OwnedNumber::voice_enabled` docs no longer send you to the dashboard to configure voice; they point at `client.voice()`.
+
 ## 5.0.0
 
 ### Major Changes

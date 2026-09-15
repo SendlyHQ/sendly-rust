@@ -114,9 +114,10 @@ pub struct OwnedNumber {
     /// When the number is scheduled to be released, as an ISO-8601 timestamp.
     #[serde(default, alias = "scheduledReleaseAt")]
     pub scheduled_release_at: Option<String>,
-    /// Whether the number can take and place phone calls. Switched on in
-    /// the dashboard (Calls → Settings); absent on responses that predate
-    /// voice (then `None`).
+    /// Whether the number can take and place phone calls. Switched on with
+    /// [`VoiceNumbersResource::update`](crate::VoiceNumbersResource::update)
+    /// or in the dashboard (Calls → Settings); absent on responses that
+    /// predate voice (then `None`).
     #[serde(default, alias = "voiceEnabled")]
     pub voice_enabled: Option<bool>,
     /// How the number answers: `"none"`, `"ring_dashboard"` (the team

@@ -20,6 +20,7 @@ use crate::messages::Messages;
 use crate::templates::TemplatesResource;
 use crate::tendlc::TenDlcResource;
 use crate::verify::VerifyResource;
+use crate::voice::VoiceResource;
 use crate::webhook_resource::WebhooksResource;
 use crate::whatsapp::WhatsAppResource;
 
@@ -27,7 +28,7 @@ use crate::whatsapp::WhatsAppResource;
 pub const DEFAULT_BASE_URL: &str = "https://sendly.live/api/v1";
 
 /// SDK version.
-pub const VERSION: &str = "5.0.0";
+pub const VERSION: &str = "5.1.0";
 
 /// Configuration for the Sendly client.
 #[derive(Debug, Clone)]
@@ -247,6 +248,12 @@ impl Sendly {
         CallsResource::new(self)
     }
 
+    /// Returns the Voice resource (voice settings for numbers, AI agents and
+    /// voices).
+    pub fn voice(&self) -> VoiceResource {
+        VoiceResource::new(self)
+    }
+
     /// Makes a GET request.
     pub fn set_organization_id(&mut self, id: impl Into<String>) {
         self.organization_id = Some(id.into());
@@ -292,7 +299,7 @@ impl Sendly {
         idempotency_key: Option<&str>,
         auto_key: bool,
     ) -> Result<Response> {
-        self.write_with_idempotency(Method::POST, path, body, idempotency_key, auto_key)
+        self.write_with_idempotency(Method::POST, path, Some(body), idempotency_key, auto_key)
             .await
     }
 
@@ -305,7 +312,7 @@ impl Sendly {
         idempotency_key: Option<&str>,
         auto_key: bool,
     ) -> Result<Response> {
-        self.write_with_idempotency(Method::PATCH, path, body, idempotency_key, auto_key)
+        self.write_with_idempotency(Method::PATCH, path, Some(body), idempotency_key, auto_key)
             .await
     }
 
@@ -318,7 +325,19 @@ impl Sendly {
         idempotency_key: Option<&str>,
         auto_key: bool,
     ) -> Result<Response> {
-        self.write_with_idempotency(Method::PUT, path, body, idempotency_key, auto_key)
+        self.write_with_idempotency(Method::PUT, path, Some(body), idempotency_key, auto_key)
+            .await
+    }
+
+    /// Makes a DELETE request (no body) with idempotency-key handling (see
+    /// [`post_with_idempotency`](Self::post_with_idempotency)).
+    pub(crate) async fn delete_with_idempotency(
+        &self,
+        path: &str,
+        idempotency_key: Option<&str>,
+        auto_key: bool,
+    ) -> Result<Response> {
+        self.write_with_idempotency::<()>(Method::DELETE, path, None, idempotency_key, auto_key)
             .await
     }
 
@@ -326,7 +345,7 @@ impl Sendly {
         &self,
         method: Method,
         path: &str,
-        body: &T,
+        body: Option<&T>,
         idempotency_key: Option<&str>,
         auto_key: bool,
     ) -> Result<Response> {
@@ -339,10 +358,12 @@ impl Sendly {
         self.request_with_retry(|| async {
             let url = format!("{}{}", self.config.base_url, path);
 
-            let req = self
-                .client
-                .request(method.clone(), &url)
-                .json(body)
+            let req = self.client.request(method.clone(), &url);
+            let req = match body {
+                Some(body) => req.json(body),
+                None => req,
+            };
+            let req = req
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Accept", "application/json")
                 .header("User-Agent", format!("sendly-rs/{}", VERSION));

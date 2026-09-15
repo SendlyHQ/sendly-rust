@@ -22,7 +22,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sendly = "5.0.0"
+sendly = "5.1.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -865,10 +865,11 @@ client.messages().send_rcs(
 
 Place phone calls that one of your AI agents handles, follow them, end one
 early, and fetch recordings. Calls go to US and Canadian numbers from a
-workspace number that is voice-enabled in the dashboard (Calls → Settings) and
-has an emergency address registered. Agents are created in the dashboard under
-Calls → Agents. Reads need the `calls:read` scope and writes `calls:write`;
-placing or ending a call also needs a live API key.
+workspace number that is voice-enabled and has an emergency address
+registered. Set up numbers and agents with `client.voice()` (see
+[Configure voice](#configure-voice)) or in the dashboard. Reads need the
+`calls:read` scope and writes `calls:write`; placing or ending a call also
+needs a live API key.
 
 Calls are billed per started minute, prepaid from your credit balance: 2
 credits/min outbound plus 8 credits/min while an AI agent is on the line, so an
@@ -881,9 +882,9 @@ use sendly::{CallRecordingStatus, CallStatus, CreateCallRequest, ListCallsOption
 
 let client = Sendly::new("sk_live_v1_xxx");
 
-// Find a number to call from: voice_enabled / voice_mode are on each owned number
-let owned = client.numbers().list().await?;
-let from = owned.numbers.iter().find(|n| n.voice_enabled == Some(true)).expect("a voice-enabled number");
+// Find a number to call from
+let numbers = client.voice().numbers().list().await?;
+let from = numbers.data.iter().find(|n| n.voice_enabled).expect("a voice-enabled number");
 
 // Place a call handled by an agent (returns while it is still ringing)
 let call = client
@@ -936,7 +937,7 @@ match client.calls().create(request).await {
     Ok(call) => println!("ringing {}", call.id),
     Err(Error::InsufficientCredits { message }) => eprintln!("top up first: {}", message),
     Err(Error::Api { code: Some(code), message, .. }) => match code.as_str() {
-        "e911_required" => eprintln!("register an emergency address in the dashboard: {}", message),
+        "e911_required" => eprintln!("register an emergency address for the from number first: {}", message),
         "lines_busy" => eprintln!("retry shortly: {}", message),
         "agent_disabled" | "no_voice_number" | "live_key_required" => eprintln!("{}: {}", code, message),
         _ => eprintln!("{}: {}", code, message),
@@ -976,6 +977,154 @@ call.is_ended()  // reached a terminal status
 
 Every enum has an `Unknown` fallback, so a value added by a later API release
 never fails decoding.
+
+### Configure voice
+
+Set up everything a call depends on from code with `client.voice()`: switch
+voice on for a number and choose how it answers, register the number's
+emergency address, and create the AI agents that talk on calls. A number is
+addressed by its id or its E.164 phone number. Reads need `calls:read`; writes
+need `calls:write` and a live API key. In a team workspace, changing a number
+also needs a role that can change settings, and managing agents a role that
+can manage API keys, because each agent holds its own scoped sending key.
+
+```rust
+use sendly::{
+    CreateVoiceAgentRequest, RegisterEmergencyAddressRequest, Sendly, UpdateVoiceAgentRequest,
+    UpdateVoiceNumberRequest, VoiceAgentToolsInput, VoiceMode,
+};
+
+let client = Sendly::new("sk_live_v1_xxx");
+
+// The voices an agent can speak with
+let voices = client.voice().voices().list().await?;
+for voice in &voices.data {
+    println!("{}: {} ({})", voice.id, voice.label, voice.language);
+}
+
+// Create an agent (up to 20 per workspace); it answers real callers on any number pointed at it
+let agent = client
+    .voice()
+    .agents()
+    .create(
+        CreateVoiceAgentRequest::new("Front desk")
+            .voice("ashley")
+            .greeting("Thanks for calling Acme, how can I help?")
+            .instructions("Answer questions about opening hours and take a message for anything else.")
+            .tools(VoiceAgentToolsInput::new().send_sms(true)),
+    )
+    .await?;
+println!("{} can text callers: {}", agent.id, agent.can_send_sms);
+
+// Change it later: only the fields you set are sent
+client
+    .voice()
+    .agents()
+    .update(&agent.id, UpdateVoiceAgentRequest::new().greeting("Thanks for calling Acme. How can I help today?"))
+    .await?;
+
+// Register the emergency address: a US or Canadian number needs one before it
+// can place calls, and the first registration adds $1.50 a month to the number
+let number = client
+    .voice()
+    .numbers()
+    .register_emergency_address(
+        "+15555550188",
+        RegisterEmergencyAddressRequest::new("500 Example Ave", "Austin", "TX", "78701").unit("Suite 2"),
+    )
+    .await?;
+println!("{:?}", number.emergency_address.map(|e| e.status)); // Some("provisioning") or Some("active")
+
+// Have the agent answer the number. This changes how real calls to it are answered.
+let number = client
+    .voice()
+    .numbers()
+    .update(
+        "+15555550188",
+        UpdateVoiceNumberRequest::new()
+            .voice_enabled(true)
+            .voice_mode(VoiceMode::Agent)
+            .agent_id(&agent.id),
+    )
+    .await?;
+
+// Ring the team in the dashboard instead (VoiceMode::None switches voice off)
+client
+    .voice()
+    .numbers()
+    .update(&number.id, UpdateVoiceNumberRequest::new().voice_mode(VoiceMode::RingDashboard))
+    .await?;
+
+// Every active number with its voice settings and per-minute rates in credits
+for n in client.voice().numbers().list().await?.data {
+    println!("{} {} {:?} {} credits/min out", n.phone_number, n.voice_mode, n.agent_id, n.rate_per_minute.outbound);
+}
+```
+
+Refusals map the same way as for calls: `number_not_found` and
+`agent_not_found` are `Error::NotFound`; `invalid_request`,
+`invalid_voice_mode`, `agent_required`, `e911_not_applicable` and
+`invalid_address` (400 for a malformed field, 422 when the address couldn't be
+validated) are `Error::Validation`; `forbidden`, `live_key_required`,
+`agent_disabled`, `agent_limit`, `agent_in_use`, `voice_attach_failed`,
+`carrier_refused` and `voice_unavailable` arrive as `Error::Api` with `code`
+set. An agent that still answers a number can't be deleted, so move those
+numbers first:
+
+```rust
+use sendly::{Error, UpdateVoiceNumberRequest, VoiceMode};
+
+match client.voice().agents().delete(&agent.id).await {
+    Ok(deleted) => println!("deleted {}", deleted.id),
+    Err(Error::Api { code: Some(code), .. }) if code == "agent_in_use" => {
+        for n in client.voice().numbers().list().await?.data {
+            if n.voice_mode == VoiceMode::Agent && n.agent_id.as_deref() == Some(agent.id.as_str()) {
+                client
+                    .voice()
+                    .numbers()
+                    .update(&n.id, UpdateVoiceNumberRequest::new().voice_mode(VoiceMode::RingDashboard))
+                    .await?;
+            }
+        }
+        client.voice().agents().delete(&agent.id).await?;
+    }
+    Err(e) => return Err(e),
+}
+```
+
+The number and agent objects:
+
+```rust
+number.id                 // String (uuid)
+number.phone_number       // String (E.164)
+number.phone_number_type  // Option<String>
+number.country_code       // Option<String>
+number.is_default         // bool
+number.voice_enabled      // bool
+number.voice_mode         // VoiceMode: None | RingDashboard | Agent
+number.agent_id           // Option<String>
+number.emergency_address  // Option<VoiceNumberEmergencyAddress> { status, address: Option<EmergencyAddress> }
+number.rate_per_minute    // VoiceNumberRates { inbound, outbound, agent } (credits per started minute)
+
+agent.id                  // String (uuid)
+agent.name                // String
+agent.enabled             // bool
+agent.voice               // String (a voice id from voices().list())
+agent.voice_label         // String
+agent.language            // String
+agent.greeting            // String ("" when unset; said when it answers an inbound call)
+agent.instructions        // String
+agent.tools               // VoiceAgentTools { send_sms, transfer_to }
+agent.can_send_sms        // bool (the agent holds its own scoped sending key)
+agent.calls_handled       // i64
+agent.avg_duration_secs   // i64
+agent.created_at          // String (ISO 8601)
+agent.updated_at          // String (ISO 8601)
+```
+
+`tools.transfer_to` does not transfer calls yet: while it is set, a caller who
+asks for a person is told the message will be passed on, and the agent takes
+their name and number.
 
 ## Error Handling
 
