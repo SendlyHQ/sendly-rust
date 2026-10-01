@@ -1,9 +1,10 @@
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 use crate::models::{
     AddLabelsRequest, Conversation, ConversationContextResponse, ConversationListResponse,
-    ConversationWithMessages, GetConversationOptions, ListConversationsOptions, Message,
-    ReplyToConversationRequest, SuggestRepliesResponse, UpdateConversationRequest,
+    ConversationWithMessages, GetConversationOptions, Label, LabelListResponse,
+    ListConversationsOptions, Message, ReplyToConversationRequest, SuggestRepliesResponse,
+    UpdateConversationRequest,
 };
 
 /// Conversations resource for managing SMS conversation threads.
@@ -87,14 +88,12 @@ impl<'a> ConversationsResource<'a> {
         options: Option<GetConversationOptions>,
     ) -> Result<ConversationWithMessages> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
 
         let query = options.map(|o| o.to_query_params()).unwrap_or_default();
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/conversations/{}", encoded_id);
         let response = self.client.get(&path, &query).await?;
         let result: ConversationWithMessages = response.json().await?;
@@ -126,23 +125,16 @@ impl<'a> ConversationsResource<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn reply(
-        &self,
-        id: &str,
-        request: ReplyToConversationRequest,
-    ) -> Result<Message> {
+    pub async fn reply(&self, id: &str, request: ReplyToConversationRequest) -> Result<Message> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
-        if request.text.is_empty() {
-            return Err(Error::Validation {
-                message: "Message text is required".to_string(),
-            });
+        let has_media = request.media_urls.as_ref().is_some_and(|u| !u.is_empty());
+        if request.text.is_empty() && !has_media {
+            return Err(Error::validation("Provide 'text' or 'media_urls'"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/conversations/{}/messages", encoded_id);
         let response = self.client.post(&path, &request).await?;
         let message: Message = response.json().await?;
@@ -178,12 +170,10 @@ impl<'a> ConversationsResource<'a> {
         request: UpdateConversationRequest,
     ) -> Result<Conversation> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/conversations/{}", encoded_id);
         let response = self.client.patch(&path, &request).await?;
         let result: Conversation = response.json().await?;
@@ -211,14 +201,12 @@ impl<'a> ConversationsResource<'a> {
     /// ```
     pub async fn close(&self, id: &str) -> Result<Conversation> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/conversations/{}/close", encoded_id);
-        let response = self.client.post(&path, &()).await?;
+        let response = self.client.post_empty(&path).await?;
         let result: Conversation = response.json().await?;
 
         Ok(result)
@@ -244,14 +232,12 @@ impl<'a> ConversationsResource<'a> {
     /// ```
     pub async fn reopen(&self, id: &str) -> Result<Conversation> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/conversations/{}/reopen", encoded_id);
-        let response = self.client.post(&path, &()).await?;
+        let response = self.client.post_empty(&path).await?;
         let result: Conversation = response.json().await?;
 
         Ok(result)
@@ -277,44 +263,39 @@ impl<'a> ConversationsResource<'a> {
     /// ```
     pub async fn mark_read(&self, id: &str) -> Result<Conversation> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/conversations/{}/mark-read", encoded_id);
-        let response = self.client.post(&path, &()).await?;
+        let response = self.client.post_empty(&path).await?;
         let result: Conversation = response.json().await?;
 
         Ok(result)
     }
 
-    /// Adds labels to a conversation.
+    /// Adds labels to a conversation and returns every label the
+    /// conversation now has.
     ///
     /// # Arguments
     ///
     /// * `id` - Conversation ID
     /// * `label_ids` - Label IDs to add
-    pub async fn add_labels(&self, id: &str, label_ids: Vec<String>) -> Result<Conversation> {
+    pub async fn add_labels(&self, id: &str, label_ids: Vec<String>) -> Result<Vec<Label>> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
         if label_ids.is_empty() {
-            return Err(Error::Validation {
-                message: "At least one label ID is required".to_string(),
-            });
+            return Err(Error::validation("At least one label ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/conversations/{}/labels", encoded_id);
         let body = AddLabelsRequest { label_ids };
         let response = self.client.post(&path, &body).await?;
-        let result: Conversation = response.json().await?;
+        let result: LabelListResponse = response.json().await?;
 
-        Ok(result)
+        Ok(result.data)
     }
 
     /// Removes a label from a conversation.
@@ -323,25 +304,20 @@ impl<'a> ConversationsResource<'a> {
     ///
     /// * `id` - Conversation ID
     /// * `label_id` - Label ID to remove
-    pub async fn remove_label(&self, id: &str, label_id: &str) -> Result<Conversation> {
+    pub async fn remove_label(&self, id: &str, label_id: &str) -> Result<()> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
         if label_id.is_empty() {
-            return Err(Error::Validation {
-                message: "Label ID is required".to_string(),
-            });
+            return Err(Error::validation("Label ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
-        let encoded_label_id = urlencoding::encode(label_id);
+        let encoded_id = path_id(id)?;
+        let encoded_label_id = path_id(label_id)?;
         let path = format!("/conversations/{}/labels/{}", encoded_id, encoded_label_id);
-        let response = self.client.delete(&path).await?;
-        let result: Conversation = response.json().await?;
+        self.client.delete(&path).await?;
 
-        Ok(result)
+        Ok(())
     }
 
     /// Gets conversation context for AI/LLM consumption.
@@ -356,12 +332,10 @@ impl<'a> ConversationsResource<'a> {
         max_messages: Option<i32>,
     ) -> Result<ConversationContextResponse> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/conversations/{}/context", encoded_id);
 
         let mut query = Vec::new();
@@ -380,12 +354,10 @@ impl<'a> ConversationsResource<'a> {
     /// in our Node/Python/Ruby/Go/C# SDKs.
     pub async fn suggest_replies(&self, id: &str) -> Result<SuggestRepliesResponse> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Conversation ID is required".to_string(),
-            });
+            return Err(Error::validation("Conversation ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/conversations/{}/suggest-replies", encoded_id);
 
         let response = self.client.post(&path, &serde_json::json!({})).await?;

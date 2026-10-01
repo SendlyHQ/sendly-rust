@@ -62,7 +62,7 @@ async fn test_send_batch_empty_messages() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Messages array is required"));
         }
         _ => panic!("Expected Validation error"),
@@ -97,7 +97,7 @@ async fn test_send_batch_invalid_phone() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Invalid phone number at index"));
         }
         _ => panic!("Expected Validation error"),
@@ -132,7 +132,7 @@ async fn test_send_batch_invalid_text() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Invalid message text at index"));
         }
         _ => panic!("Expected Validation error"),
@@ -162,7 +162,7 @@ async fn test_send_batch_text_too_long() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Invalid message text at index"));
         }
         _ => panic!("Expected Validation error"),
@@ -373,7 +373,7 @@ async fn test_get_batch_empty_id() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Batch ID is required"));
         }
         _ => panic!("Expected Validation error"),
@@ -398,7 +398,7 @@ async fn test_get_batch_not_found() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::NotFound { message } => {
+        Error::NotFound { message, .. } => {
             assert!(message.contains("not found"));
         }
         _ => panic!("Expected NotFound error"),
@@ -613,4 +613,216 @@ async fn test_list_batches_server_error() {
         }
         _ => panic!("Expected Api error"),
     }
+}
+
+#[tokio::test]
+async fn test_preview_batch_decodes_the_preview_the_api_sends() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/messages/batch/preview"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total": 2,
+            "sendable": 2,
+            "blocked": 0,
+            "duplicates": 0,
+            "creditsNeeded": 4,
+            "creditBalance": 100,
+            "hasSufficientCredits": true,
+            "pooled": false,
+            "keyType": "live",
+            "keyScopes": ["sms:send", "sms:read"],
+            "hasWriteScope": true,
+            "messagingProfile": {
+                "id": "mp_1",
+                "canSendDomestic": true,
+                "canSendInternational": false,
+                "verificationStatus": "verified",
+                "verificationType": "toll_free"
+            },
+            "byCountry": {
+                "US": { "count": 2, "credits": 4, "tier": "domestic", "allowed": true }
+            },
+            "blockedMessages": [],
+            "compliance": {
+                "messageType": "marketing",
+                "optedOutBlocked": 0,
+                "shaftBlocked": 0,
+                "quietHoursBlocked": 0,
+                "quietHoursRescheduled": 0,
+                "shaftBlockedMessages": [],
+                "quietHoursBlockedMessages": []
+            },
+            "warnings": ["Marketing messages are subject to quiet hours enforcement (8pm-8am recipient local time)"]
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let preview = client
+        .messages()
+        .preview_batch(SendBatchRequest {
+            messages: vec![
+                BatchMessageItem {
+                    to: "+15555550100".to_string(),
+                    text: "Hello Alice!".to_string(),
+                    metadata: None,
+                },
+                BatchMessageItem {
+                    to: "+15555550101".to_string(),
+                    text: "Hello Bob!".to_string(),
+                    metadata: None,
+                },
+            ],
+            from: None,
+            message_type: None,
+            metadata: None,
+        })
+        .await
+        .expect("preview should decode");
+
+    assert!(preview.can_send);
+    assert_eq!(preview.total_messages, 2);
+    assert_eq!(preview.will_send, 2);
+    assert_eq!(preview.credits_needed, 4);
+    assert_eq!(preview.current_balance, 100);
+    assert!(preview.has_enough_credits);
+    assert_eq!(preview.duplicates, 0);
+    assert_eq!(preview.key_type.as_deref(), Some("live"));
+    assert!(preview.has_write_scope);
+    assert_eq!(preview.warnings.len(), 1);
+}
+
+fn preview_body(
+    key_type: &str,
+    blocked: serde_json::Value,
+    opted_out_blocked: i64,
+    has_sufficient_credits: bool,
+) -> serde_json::Value {
+    let blocked_count = blocked.as_array().unwrap().len();
+    json!({
+        "total": 3,
+        "sendable": 3 - blocked_count,
+        "blocked": blocked_count,
+        "duplicates": 0,
+        "creditsNeeded": 4,
+        "creditBalance": 0,
+        "hasSufficientCredits": has_sufficient_credits,
+        "pooled": false,
+        "keyType": key_type,
+        "keyScopes": ["sms:send"],
+        "hasWriteScope": true,
+        "messagingProfile": { "id": "mp_1", "canSendDomestic": true, "canSendInternational": false, "verificationStatus": "verified", "verificationType": "toll_free" },
+        "byCountry": {},
+        "blockedMessages": blocked,
+        "compliance": {
+            "messageType": "marketing",
+            "optedOutBlocked": opted_out_blocked,
+            "shaftBlocked": 0,
+            "quietHoursBlocked": 0,
+            "quietHoursRescheduled": 0,
+            "shaftBlockedMessages": [],
+            "quietHoursBlockedMessages": []
+        },
+        "warnings": []
+    })
+}
+
+async fn preview_with(body: serde_json::Value) -> sendly::BatchPreviewResponse {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/messages/batch/preview"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+    client
+        .messages()
+        .preview_batch(SendBatchRequest {
+            messages: vec![BatchMessageItem {
+                to: "+15555550100".to_string(),
+                text: "Hello!".to_string(),
+                metadata: None,
+            }],
+            from: None,
+            message_type: None,
+            metadata: None,
+        })
+        .await
+        .expect("preview should decode")
+}
+
+#[tokio::test]
+async fn test_preview_batch_cannot_send_when_a_message_is_blocked_for_access() {
+    let preview = preview_with(preview_body(
+        "live",
+        json!([{ "index": 2, "to": "+447700900123", "reason": "International messaging is not enabled" }]),
+        0,
+        true,
+    ))
+    .await;
+
+    assert!(!preview.can_send);
+    assert_eq!(preview.blocked_messages[0].index, 2);
+    assert_eq!(
+        preview.blocked_messages[0].reason,
+        "International messaging is not enabled"
+    );
+}
+
+#[tokio::test]
+async fn test_preview_batch_can_send_past_opted_out_recipients() {
+    let preview = preview_with(preview_body(
+        "live",
+        json!([{ "index": 0, "to": "+15555550100", "reason": "Contact has opted out (texted STOP)" }]),
+        1,
+        true,
+    ))
+    .await;
+
+    assert!(preview.can_send);
+}
+
+#[tokio::test]
+async fn test_preview_batch_needs_a_balance_only_for_a_live_key() {
+    let live = preview_with(preview_body("live", json!([]), 0, false)).await;
+    let test = preview_with(preview_body("test", json!([]), 0, false)).await;
+
+    assert!(!live.can_send);
+    assert!(test.can_send);
+}
+
+#[tokio::test]
+async fn test_preview_batch_cannot_send_more_than_ten_thousand_messages() {
+    let mut body = preview_body("live", json!([]), 0, true);
+    body["total"] = json!(10_001);
+    body["sendable"] = json!(10_001);
+    body["warnings"] = json!([
+        "Batch size exceeds 10,000 limit - sending it will be rejected, split it into batches of 10,000 or fewer"
+    ]);
+    let preview = preview_with(body).await;
+
+    assert_eq!(preview.total_messages, 10_001);
+    assert!(!preview.can_send);
+
+    let mut body = preview_body("live", json!([]), 0, true);
+    body["total"] = json!(10_000);
+    body["sendable"] = json!(10_000);
+    assert!(preview_with(body).await.can_send);
+}
+
+#[tokio::test]
+async fn test_get_batch_reads_the_status_counts() {
+    let mock_server = setup_mock_server().await;
+    mock_get_batch_success().mount(&mock_server).await;
+    let client = create_test_client(&mock_server.uri());
+
+    let batch = client.messages().get_batch("batch_abc123").await.unwrap();
+
+    assert_eq!(batch.delivered, 2);
+    assert_eq!(batch.credits_reserved, 2);
+    assert_eq!(batch.messages[0].id.as_deref(), Some("msg_1"));
+    assert_eq!(
+        batch.messages[0].delivered_at.as_deref(),
+        Some("2025-01-15T10:00:30Z")
+    );
 }

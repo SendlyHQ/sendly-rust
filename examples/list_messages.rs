@@ -14,8 +14,11 @@ async fn main() -> sendly::Result<()> {
         .list(Some(ListMessagesOptions::new().limit(10)))
         .await?;
 
-    println!("Total: {}", messages.total());
-    println!("Count in page: {}", messages.len());
+    println!(
+        "Count in page: {} (of {} in total)",
+        messages.len(),
+        messages.total()
+    );
     println!();
 
     for msg in messages.iter() {

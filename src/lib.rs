@@ -68,11 +68,11 @@ mod error;
 mod labels;
 mod links;
 mod media;
+mod messages;
+mod models;
 mod numbers;
 mod rcs;
 mod rules;
-mod messages;
-mod models;
 mod templates;
 mod tendlc;
 mod verify;
@@ -82,7 +82,9 @@ mod whatsapp;
 
 pub mod webhooks;
 
-pub use account_resource::AccountResource;
+pub use account_resource::{
+    AccountResource, ApiKeyEndpointCount, ApiKeyRequestRecord, ApiKeyUsage,
+};
 pub use business_upgrade::BusinessUpgradeResource;
 pub use calls::*;
 pub use campaigns::*;
@@ -91,18 +93,18 @@ pub use contacts::*;
 pub use conversations::ConversationsResource;
 pub use drafts::DraftsResource;
 pub use enterprise::EnterpriseResource;
+pub use error::{Error, Result};
 pub use labels::LabelsResource;
 pub use links::LinksResource;
-pub use rules::RulesResource;
-pub use error::{Error, Result};
 pub use media::Media;
 pub use messages::Messages;
 pub use models::*;
 pub use numbers::*;
 pub use rcs::*;
+pub use rules::RulesResource;
 pub use templates::*;
 pub use tendlc::*;
 pub use verify::*;
 pub use voice::*;
-pub use webhook_resource::WebhooksResource;
+pub use webhook_resource::{BackfillOptions, RedeliverOptions, WebhooksResource};
 pub use whatsapp::*;

@@ -199,7 +199,7 @@ async fn test_capability_agent_ambiguous() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("more than one RCS agent")),
+        Error::Validation { message, .. } => assert!(message.contains("more than one RCS agent")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }

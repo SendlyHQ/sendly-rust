@@ -11,7 +11,7 @@
 use reqwest::multipart;
 use serde::{Deserialize, Serialize};
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -452,21 +452,33 @@ impl EinDocument {
         multipart::Part::bytes(self.bytes)
             .file_name(filename)
             .mime_str(&content_type)
-            .map_err(|e| Error::Validation {
-                message: format!("Invalid EIN doc content type: {}", e),
-            })
+            .map_err(|e| Error::validation(format!("Invalid EIN doc content type: {}", e)))
     }
 }
 
+/// The 202 response to [`BusinessUpgradeResource::start`]. The new number is
+/// provisioned and submitted after it returns; follow it with
+/// [`BusinessUpgradeResource::status`].
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartUpgradeResponse {
     #[serde(default)]
     pub success: bool,
     pub pending_verification_id: String,
-    pub telnyx_verification_id: String,
-    pub toll_free_number: String,
-    pub telnyx_messaging_profile_id: String,
+    /// `provisioning` while the new number is set up.
+    #[serde(default)]
+    pub status: Option<String>,
+    #[deprecated(note = "The start response does not include this; it is always `None`.")]
+    #[serde(default)]
+    pub telnyx_verification_id: Option<String>,
+    /// The new toll-free number. The start response does not include it;
+    /// read it from [`BusinessUpgradeResource::status`] once provisioned.
+    #[serde(default)]
+    pub toll_free_number: Option<String>,
+    #[deprecated(note = "The start response does not include this; it is always `None`.")]
+    #[serde(default)]
+    pub telnyx_messaging_profile_id: Option<String>,
+    #[deprecated(note = "The start response does not include this; it is always false.")]
     #[serde(default)]
     pub ein_doc_stored: bool,
     #[serde(default)]
@@ -597,7 +609,10 @@ impl<'a> BusinessUpgradeResource<'a> {
     /// Validate a candidate entity-upgrade payload before submission. Returns
     /// issues + proposed auto-fixes — purely advisory, no writes.
     pub async fn preflight(&self, candidate: PreflightCandidate) -> Result<PreflightReport> {
-        let response = self.client.post("/verification/preflight", &candidate).await?;
+        let response = self
+            .client
+            .post("/verification/preflight", &candidate)
+            .await?;
         Ok(response.json().await?)
     }
 
@@ -619,26 +634,23 @@ impl<'a> BusinessUpgradeResource<'a> {
         request: StartUpgradeRequest,
         ein_doc: Option<EinDocument>,
     ) -> Result<StartUpgradeResponse> {
-        let mut form = multipart::Form::new();
-        form = request.append_text_fields(form);
-        if let Some(doc) = ein_doc {
-            form = form.part("einDoc", doc.into_part()?);
-        }
-        let path = format!(
-            "/workspaces/{}/upgrade",
-            urlencoding::encode(workspace_id)
-        );
-        let response = self.client.post_multipart(&path, form).await?;
+        let path = format!("/workspaces/{}/upgrade", path_id(workspace_id)?);
+        let build_form = || {
+            let mut form = multipart::Form::new();
+            form = request.append_text_fields(form);
+            if let Some(doc) = ein_doc.clone() {
+                form = form.part("einDoc", doc.into_part()?);
+            }
+            Ok(form)
+        };
+        let response = self.client.post_multipart(&path, build_form).await?;
         Ok(response.json().await?)
     }
 
     /// Whether the given workspace has a pending entity upgrade. Returns
     /// `{ pending: None }` when no upgrade is in flight.
     pub async fn status(&self, workspace_id: &str) -> Result<UpgradeStatusResponse> {
-        let path = format!(
-            "/workspaces/{}/upgrade/status",
-            urlencoding::encode(workspace_id)
-        );
+        let path = format!("/workspaces/{}/upgrade/status", path_id(workspace_id)?);
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
     }
@@ -647,10 +659,7 @@ impl<'a> BusinessUpgradeResource<'a> {
     /// deletes the new messaging profile, removes the stored EIN doc.
     /// Idempotent.
     pub async fn cancel(&self, workspace_id: &str) -> Result<CancelUpgradeResponse> {
-        let path = format!(
-            "/workspaces/{}/upgrade/cancel",
-            urlencoding::encode(workspace_id)
-        );
+        let path = format!("/workspaces/{}/upgrade/cancel", path_id(workspace_id)?);
         let response = self.client.post(&path, &serde_json::json!({})).await?;
         Ok(response.json().await?)
     }
@@ -663,16 +672,16 @@ impl<'a> BusinessUpgradeResource<'a> {
         request: ResubmitUpgradeRequest,
         ein_doc: Option<EinDocument>,
     ) -> Result<ResubmitUpgradeResponse> {
-        let mut form = multipart::Form::new();
-        form = request.append_text_fields(form);
-        if let Some(doc) = ein_doc {
-            form = form.part("einDoc", doc.into_part()?);
-        }
-        let path = format!(
-            "/workspaces/{}/upgrade/resubmit",
-            urlencoding::encode(workspace_id)
-        );
-        let response = self.client.post_multipart(&path, form).await?;
+        let path = format!("/workspaces/{}/upgrade/resubmit", path_id(workspace_id)?);
+        let build_form = || {
+            let mut form = multipart::Form::new();
+            form = request.append_text_fields(form);
+            if let Some(doc) = ein_doc.clone() {
+                form = form.part("einDoc", doc.into_part()?);
+            }
+            Ok(form)
+        };
+        let response = self.client.post_multipart(&path, build_form).await?;
         Ok(response.json().await?)
     }
 
@@ -684,22 +693,19 @@ impl<'a> BusinessUpgradeResource<'a> {
         workspace_id: &str,
         request: SetDispositionRequest,
     ) -> Result<DispositionResponse> {
-        let disposition = request.disposition.ok_or_else(|| Error::Validation {
-            message: "set_disposition requires a disposition".to_string(),
-        })?;
+        let disposition = request
+            .disposition
+            .ok_or_else(|| Error::validation("set_disposition requires a disposition"))?;
         if disposition == Disposition::Moved && request.target_workspace_id.is_none() {
-            return Err(Error::Validation {
-                message: "Disposition::Moved requires target_workspace_id".to_string(),
-            });
+            return Err(Error::validation(
+                "Disposition::Moved requires target_workspace_id",
+            ));
         }
         let payload = DispositionPayload {
             disposition: disposition.as_str(),
             target_org_id: request.target_workspace_id.as_deref(),
         };
-        let path = format!(
-            "/workspaces/{}/upgrade/disposition",
-            urlencoding::encode(workspace_id)
-        );
+        let path = format!("/workspaces/{}/upgrade/disposition", path_id(workspace_id)?);
         let response = self.client.post(&path, &payload).await?;
         Ok(response.json().await?)
     }

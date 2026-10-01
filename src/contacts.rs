@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,7 +59,7 @@ pub struct CheckNumbersResponse {
     /// True if a carrier lookup for this scope was already running when you
     /// called this. Treat it as a soft no-op and wait for the
     /// `contacts.lookup_completed` webhook.
-    #[serde(default, alias = "already_running")]
+    #[serde(default, alias = "alreadyRunning")]
     pub already_running: bool,
     #[serde(default)]
     pub message: Option<String>,
@@ -396,7 +396,10 @@ impl<'a> ContactsResource<'a> {
     }
 
     pub async fn get(&self, id: &str) -> Result<Contact> {
-        let response = self.client.get(&format!("/contacts/{}", urlencoding::encode(id)), &[]).await?;
+        let response = self
+            .client
+            .get(&format!("/contacts/{}", path_id(id)?), &[])
+            .await?;
         Ok(response.json().await?)
     }
 
@@ -408,13 +411,15 @@ impl<'a> ContactsResource<'a> {
     pub async fn update(&self, id: &str, request: UpdateContactRequest) -> Result<Contact> {
         let response = self
             .client
-            .patch(&format!("/contacts/{}", urlencoding::encode(id)), &request)
+            .patch(&format!("/contacts/{}", path_id(id)?), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
-        self.client.delete(&format!("/contacts/{}", urlencoding::encode(id))).await?;
+        self.client
+            .delete(&format!("/contacts/{}", path_id(id)?))
+            .await?;
         Ok(())
     }
 
@@ -426,7 +431,10 @@ impl<'a> ContactsResource<'a> {
     pub async fn mark_valid(&self, id: &str) -> Result<Contact> {
         let response = self
             .client
-            .post(&format!("/contacts/{}/mark-valid", urlencoding::encode(id)), &serde_json::json!({}))
+            .post(
+                &format!("/contacts/{}/mark-valid", path_id(id)?),
+                &serde_json::json!({}),
+            )
             .await?;
         Ok(response.json().await?)
     }
@@ -450,14 +458,14 @@ impl<'a> ContactsResource<'a> {
             .unwrap_or(false);
 
         if !has_ids && !has_list_id {
-            return Err(crate::error::Error::Validation {
-                message: "bulk_mark_valid requires either ids or list_id".to_string(),
-            });
+            return Err(crate::error::Error::validation(
+                "bulk_mark_valid requires either ids or list_id",
+            ));
         }
         if has_ids && has_list_id {
-            return Err(crate::error::Error::Validation {
-                message: "bulk_mark_valid accepts ids OR list_id, not both".to_string(),
-            });
+            return Err(crate::error::Error::validation(
+                "bulk_mark_valid accepts ids OR list_id, not both",
+            ));
         }
 
         let response = self
@@ -502,7 +510,7 @@ impl<'a> ContactListsResource<'a> {
     pub async fn get(&self, id: &str) -> Result<ContactList> {
         let response = self
             .client
-            .get(&format!("/contact-lists/{}", urlencoding::encode(id)), &[])
+            .get(&format!("/contact-lists/{}", path_id(id)?), &[])
             .await?;
         Ok(response.json().await?)
     }
@@ -515,14 +523,14 @@ impl<'a> ContactListsResource<'a> {
     pub async fn update(&self, id: &str, request: UpdateContactListRequest) -> Result<ContactList> {
         let response = self
             .client
-            .patch(&format!("/contact-lists/{}", urlencoding::encode(id)), &request)
+            .patch(&format!("/contact-lists/{}", path_id(id)?), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
         self.client
-            .delete(&format!("/contact-lists/{}", urlencoding::encode(id)))
+            .delete(&format!("/contact-lists/{}", path_id(id)?))
             .await?;
         Ok(())
     }
@@ -530,7 +538,10 @@ impl<'a> ContactListsResource<'a> {
     pub async fn add_contacts(&self, list_id: &str, contact_ids: Vec<String>) -> Result<()> {
         let request = AddContactsRequest { contact_ids };
         self.client
-            .post(&format!("/contact-lists/{}/contacts", urlencoding::encode(list_id)), &request)
+            .post(
+                &format!("/contact-lists/{}/contacts", path_id(list_id)?),
+                &request,
+            )
             .await?;
         Ok(())
     }
@@ -538,7 +549,10 @@ impl<'a> ContactListsResource<'a> {
     pub async fn remove_contact(&self, list_id: &str, contact_id: &str) -> Result<()> {
         self.client
             .delete(&format!(
-                "/contact-lists/{}/contacts/{}", urlencoding::encode(list_id), urlencoding::encode(contact_id)))
+                "/contact-lists/{}/contacts/{}",
+                path_id(list_id)?,
+                path_id(contact_id)?
+            ))
             .await?;
         Ok(())
     }

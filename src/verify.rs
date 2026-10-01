@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -351,7 +351,7 @@ impl<'a> VerifyResource<'a> {
     pub async fn resend(&self, id: &str) -> Result<SendVerificationResponse> {
         let response = self
             .client
-            .post(&format!("/verify/{}/resend", urlencoding::encode(id)), &())
+            .post_empty(&format!("/verify/{}/resend", path_id(id)?))
             .await?;
         Ok(response.json().await?)
     }
@@ -362,13 +362,16 @@ impl<'a> VerifyResource<'a> {
         };
         let response = self
             .client
-            .post(&format!("/verify/{}/check", urlencoding::encode(id)), &request)
+            .post(&format!("/verify/{}/check", path_id(id)?), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn get(&self, id: &str) -> Result<Verification> {
-        let response = self.client.get(&format!("/verify/{}", urlencoding::encode(id)), &[]).await?;
+        let response = self
+            .client
+            .get(&format!("/verify/{}", path_id(id)?), &[])
+            .await?;
         Ok(response.json().await?)
     }
 

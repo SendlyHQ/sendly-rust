@@ -1,10 +1,11 @@
 //! Account resource for managing account information and credits.
 
-use crate::client::Sendly;
-use crate::error::Result;
+use crate::client::{path_id, Sendly};
 use crate::error::Error;
+use crate::error::Result;
 use crate::models::{
-    Account, ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, CreditTransactionList, Credits,
+    Account, AccountBusinessVerification, AccountLimits, AccountOrganization, ApiKey,
+    CreateApiKeyRequest, CreateApiKeyResponse, CreditTransactionList, Credits,
     ListTransactionsOptions, RotateApiKeyRequest, RotateApiKeyResponse, TransferCreditsRequest,
     TransferCreditsResponse,
 };
@@ -21,6 +22,50 @@ struct AccountResponse {
     account: Option<Account>,
     #[serde(default)]
     data: Option<Account>,
+    #[serde(default)]
+    user: Option<AccountUserWire>,
+    #[serde(default)]
+    organization: Option<AccountOrganization>,
+    #[serde(default)]
+    verification: Option<serde_json::Value>,
+    #[serde(default)]
+    limits: Option<AccountLimits>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountUserWire {
+    id: String,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default, alias = "createdAt")]
+    created_at: Option<String>,
+}
+
+impl AccountResponse {
+    #[allow(deprecated)]
+    fn into_account(self) -> Result<Account> {
+        if let Some(account) = self.account.or(self.data) {
+            return Ok(account);
+        }
+        let user = self.user.ok_or_else(|| {
+            Error::Json(<serde_json::Error as serde::de::Error>::custom(
+                "the account response has no user",
+            ))
+        })?;
+        Ok(Account {
+            id: user.id,
+            email: user.email.unwrap_or_default(),
+            name: None,
+            company_name: None,
+            verification: Default::default(),
+            limits: self.limits.unwrap_or_default(),
+            created_at: user.created_at,
+            organization: self.organization,
+            business_verification: self
+                .verification
+                .and_then(|v| serde_json::from_value::<AccountBusinessVerification>(v).ok()),
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,24 +98,71 @@ struct ApiKeyResponse {
     data: Option<ApiKey>,
 }
 
-/// Usage statistics for an API key.
+/// Usage statistics for an API key, over its most recent 100 requests.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ApiKeyUsage {
-    /// Total number of requests made with this key.
+    /// Number of requests made with this key, counting at most its last 100.
     #[serde(default, alias = "totalRequests")]
     pub total_requests: i64,
     /// Number of successful requests.
+    #[deprecated(
+        note = "The API does not report this; it is always 0. Count `recent_requests` by `status_code`."
+    )]
     #[serde(default, alias = "successfulRequests")]
     pub successful_requests: i64,
     /// Number of failed requests.
+    #[deprecated(
+        note = "The API does not report this; it is always 0. Count `recent_requests` by `status_code`."
+    )]
     #[serde(default, alias = "failedRequests")]
     pub failed_requests: i64,
-    /// Last request timestamp.
-    #[serde(default, alias = "lastRequestAt")]
+    /// When the key was last used.
+    #[serde(default, alias = "lastRequestAt", alias = "lastUsed")]
     pub last_request_at: Option<String>,
-    /// Credits used by this key.
-    #[serde(default, alias = "creditsUsed")]
+    /// Credits the counted requests used.
+    #[serde(default, alias = "creditsUsed", alias = "totalCredits")]
     pub credits_used: i64,
+    /// The key's 20 most recent requests, newest first.
+    #[serde(default, alias = "recentRequests")]
+    pub recent_requests: Vec<ApiKeyRequestRecord>,
+    /// How many of the counted requests went to each endpoint, busiest
+    /// first.
+    #[serde(default, alias = "endpointBreakdown")]
+    pub endpoint_breakdown: Vec<ApiKeyEndpointCount>,
+}
+
+/// One request made with an API key.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ApiKeyRequestRecord {
+    /// The path requested, such as `/api/v1/messages`.
+    #[serde(default)]
+    pub endpoint: String,
+    /// The HTTP method.
+    #[serde(default)]
+    pub method: String,
+    /// The HTTP status the API answered with.
+    #[serde(default)]
+    pub status_code: Option<i32>,
+    /// Credits the request used.
+    #[serde(default)]
+    pub credits_used: i64,
+    /// When the request was made.
+    #[serde(default)]
+    pub created_at: Option<String>,
+}
+
+/// How many requests an API key made to one endpoint.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[non_exhaustive]
+pub struct ApiKeyEndpointCount {
+    /// The method and path, such as `POST /api/v1/messages`.
+    #[serde(default)]
+    pub endpoint: String,
+    /// Number of requests.
+    #[serde(default)]
+    pub count: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +171,12 @@ struct ApiKeyUsageResponse {
     usage: Option<ApiKeyUsage>,
     #[serde(default)]
     data: Option<ApiKeyUsage>,
+    #[serde(default)]
+    summary: Option<ApiKeyUsage>,
+    #[serde(default, alias = "recentRequests")]
+    recent_requests: Option<Vec<ApiKeyRequestRecord>>,
+    #[serde(default, alias = "endpointBreakdown")]
+    endpoint_breakdown: Option<Vec<ApiKeyEndpointCount>>,
 }
 
 impl<'a> AccountResource<'a> {
@@ -105,15 +203,7 @@ impl<'a> AccountResource<'a> {
         let response = self.client.get("/account", &[]).await?;
         let result: AccountResponse = response.json().await?;
 
-        Ok(result.account.or(result.data).unwrap_or_else(|| Account {
-            id: String::new(),
-            email: String::new(),
-            name: None,
-            company_name: None,
-            verification: Default::default(),
-            limits: Default::default(),
-            created_at: None,
-        }))
+        result.into_account()
     }
 
     /// Gets current credit balance.
@@ -131,6 +221,7 @@ impl<'a> AccountResource<'a> {
     /// # Ok(())
     /// # }
     /// ```
+    #[allow(deprecated)]
     pub async fn credits(&self) -> Result<Credits> {
         let response = self.client.get("/account/credits", &[]).await?;
         let result: CreditsResponse = response.json().await?;
@@ -144,6 +235,7 @@ impl<'a> AccountResource<'a> {
                 available_balance: 0,
                 pending_credits: 0,
                 reserved_credits: 0,
+                billing_mode: None,
                 currency: "USD".to_string(),
             }))
     }
@@ -239,15 +331,39 @@ impl<'a> AccountResource<'a> {
     /// # }
     /// ```
     pub async fn create_api_key(&self, name: impl Into<String>) -> Result<CreateApiKeyResponse> {
-        let request = CreateApiKeyRequest {
-            name: name.into(),
-            expires_at: None,
-        };
-
-        self.create_api_key_with_options(request).await
+        self.create_api_key_with_options(CreateApiKeyRequest::new(name))
+            .await
     }
 
-    /// Creates a new API key with full options.
+    /// Creates a new API key with full options: its type (`"test"` or
+    /// `"live"`), scopes and expiry.
+    ///
+    /// Without a type the API creates a test key. A live key needs a verified
+    /// business and a credit balance: the API answers 403
+    /// `verification_required` or 402 `credits_required` otherwise. A key
+    /// can only grant scopes it has itself (403 `insufficient_permissions`),
+    /// and without scopes the new key gets the calling key's.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{CreateApiKeyRequest, Sendly};
+    ///
+    /// # async fn example() -> Result<(), sendly::Error> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let created = client
+    ///     .account()
+    ///     .create_api_key_with_options(
+    ///         CreateApiKeyRequest::new("Production")
+    ///             .key_type("live")
+    ///             .scopes(vec!["sms:send", "sms:read"]),
+    ///     )
+    ///     .await?;
+    /// println!("New key: {}", created.key);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn create_api_key_with_options(
         &self,
         request: CreateApiKeyRequest,
@@ -277,7 +393,7 @@ impl<'a> AccountResource<'a> {
     /// # }
     /// ```
     pub async fn get_api_key(&self, id: impl AsRef<str>) -> Result<ApiKey> {
-        let path = format!("/account/keys/{}", id.as_ref());
+        let path = format!("/account/keys/{}", path_id(id.as_ref())?);
         let response = self.client.get(&path, &[]).await?;
         // The API returns the key object unwrapped; older shapes wrapped it in
         // apiKey/data, so try those first and fall back to the bare object.
@@ -310,10 +426,21 @@ impl<'a> AccountResource<'a> {
     /// # }
     /// ```
     pub async fn get_api_key_usage(&self, id: impl AsRef<str>) -> Result<ApiKeyUsage> {
-        let path = format!("/account/keys/{}/usage", id.as_ref());
+        let path = format!("/account/keys/{}/usage", path_id(id.as_ref())?);
         let response = self.client.get(&path, &[]).await?;
         let result: ApiKeyUsageResponse = response.json().await?;
-        Ok(result.usage.or(result.data).unwrap_or_default())
+        let mut usage = result
+            .usage
+            .or(result.data)
+            .or(result.summary)
+            .unwrap_or_default();
+        if let Some(recent_requests) = result.recent_requests {
+            usage.recent_requests = recent_requests;
+        }
+        if let Some(endpoint_breakdown) = result.endpoint_breakdown {
+            usage.endpoint_breakdown = endpoint_breakdown;
+        }
+        Ok(usage)
     }
 
     /// Revokes an API key.
@@ -322,7 +449,7 @@ impl<'a> AccountResource<'a> {
     ///
     /// * `id` - API key ID
     pub async fn revoke_api_key(&self, id: impl AsRef<str>) -> Result<()> {
-        let path = format!("/account/keys/{}/revoke", id.as_ref());
+        let path = format!("/account/keys/{}/revoke", path_id(id.as_ref())?);
         self.client.patch(&path, &serde_json::json!({})).await?;
         Ok(())
     }
@@ -352,10 +479,7 @@ impl<'a> AccountResource<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn rotate_api_key(
-        &self,
-        id: impl AsRef<str>,
-    ) -> Result<RotateApiKeyResponse> {
+    pub async fn rotate_api_key(&self, id: impl AsRef<str>) -> Result<RotateApiKeyResponse> {
         self.rotate_api_key_with_options(id, RotateApiKeyRequest::default())
             .await
     }
@@ -390,11 +514,9 @@ impl<'a> AccountResource<'a> {
     ) -> Result<RotateApiKeyResponse> {
         let id = id.as_ref();
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "API key ID is required".to_string(),
-            });
+            return Err(Error::validation("API key ID is required"));
         }
-        let path = format!("/account/keys/{}/rotate", urlencoding::encode(id));
+        let path = format!("/account/keys/{}/rotate", path_id(id)?);
         let response = self.client.post(&path, &request).await?;
         let result: RotateApiKeyResponse = response.json().await?;
         Ok(result)

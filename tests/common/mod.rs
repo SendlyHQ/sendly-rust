@@ -1,6 +1,6 @@
 use serde_json::json;
 use wiremock::matchers::{header, method, path, path_regex};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate};
 
 pub const TEST_API_KEY: &str = "sk_test_v1_abc123";
 
@@ -224,29 +224,36 @@ pub fn mock_get_batch_success() -> Mock {
     Mock::given(method("GET"))
         .and(path_regex(r"^/messages/batch/batch_[a-z0-9]+$"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "batchId": "batch_abc123",
+            "id": "batch_abc123",
             "status": "completed",
             "total": 2,
             "queued": 0,
             "sent": 2,
+            "delivered": 2,
             "failed": 0,
+            "creditsReserved": 2,
             "creditsUsed": 2,
+            "creditsRefunded": 0,
+            "createdAt": "2025-01-15T10:00:00Z",
+            "completedAt": "2025-01-15T10:01:00Z",
             "messages": [
                 {
+                    "id": "msg_1",
                     "to": "+15551111111",
-                    "messageId": "msg_1",
-                    "status": "queued",
-                    "error": null
+                    "status": "delivered",
+                    "error": null,
+                    "createdAt": "2025-01-15T10:00:00Z",
+                    "deliveredAt": "2025-01-15T10:00:30Z"
                 },
                 {
+                    "id": "msg_2",
                     "to": "+15552222222",
-                    "messageId": "msg_2",
-                    "status": "queued",
-                    "error": null
+                    "status": "delivered",
+                    "error": null,
+                    "createdAt": "2025-01-15T10:00:00Z",
+                    "deliveredAt": "2025-01-15T10:00:31Z"
                 }
-            ],
-            "createdAt": "2025-01-15T10:00:00Z",
-            "completedAt": "2025-01-15T10:01:00Z"
+            ]
         })))
 }
 
@@ -257,18 +264,40 @@ pub fn mock_list_batches_success() -> Mock {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [
                 {
-                    "batchId": "batch_1",
+                    "id": "batch_1",
                     "status": "completed",
                     "total": 2,
                     "queued": 0,
                     "sent": 2,
+                    "delivered": 2,
                     "failed": 0,
+                    "creditsReserved": 2,
                     "creditsUsed": 2,
-                    "messages": [],
+                    "creditsRefunded": 0,
                     "createdAt": "2025-01-15T10:00:00Z",
                     "completedAt": "2025-01-15T10:01:00Z"
                 }
             ],
             "count": 1
         })))
+}
+
+pub struct NonObjectJsonBody;
+
+impl Match for NonObjectJsonBody {
+    fn matches(&self, request: &Request) -> bool {
+        !matches!(
+            request.body.iter().find(|b| !b.is_ascii_whitespace()),
+            None | Some(b'{') | Some(b'[')
+        )
+    }
+}
+
+pub fn mock_strict_json_parser() -> Mock {
+    Mock::given(method("POST"))
+        .and(NonObjectJsonBody)
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "message": "Unexpected token n in JSON at position 0"
+        })))
+        .with_priority(1)
 }

@@ -31,7 +31,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 use crate::models::IdempotentRequestOptions;
 
@@ -150,6 +150,49 @@ impl CallKind {
 }
 
 impl std::fmt::Display for CallKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Which network a call travelled over.
+///
+/// Also on the `call.started`, `call.completed` and `call.recording.ready`
+/// webhook payloads, as the `channel` field of `data.object`: read
+/// `event.object["channel"]`, or decode `data.object` with
+/// [`WebhookEvent::object_as`](crate::webhooks::WebhookEvent::object_as)
+/// into a struct with a `channel: CallChannel` field. An inbound WhatsApp
+/// call reads `Phone` until WhatsApp calls are told apart on the inbound
+/// line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CallChannel {
+    /// The phone network.
+    Phone,
+    /// A WhatsApp call to or from a WhatsApp-connected number.
+    #[serde(rename = "whatsapp")]
+    WhatsApp,
+    /// A browser-to-browser call between teammates.
+    Browser,
+    /// A channel this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+impl CallChannel {
+    /// The channel as the API spells it.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Phone => "phone",
+            Self::WhatsApp => "whatsapp",
+            Self::Browser => "browser",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for CallChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -323,6 +366,10 @@ pub struct Call {
     pub object: String,
     /// A phone call or an internal call.
     pub kind: CallKind,
+    /// The phone network, WhatsApp or the browser. `None` from an API
+    /// version that does not report it.
+    #[serde(default)]
+    pub channel: Option<CallChannel>,
     /// Inbound or outbound.
     pub direction: CallDirection,
     /// Where the call is in its lifecycle.
@@ -646,8 +693,9 @@ impl ListCallsOptions {
 /// [`Error::InsufficientCredits`], 404s (`voice_not_enabled`,
 /// `call_not_found`, `agent_not_found`, `number_not_found`) are
 /// [`Error::NotFound`], 400s (`agent_required`, `invalid_number`,
-/// `invalid_metadata`, `from_number_required`, `destination_not_supported`)
-/// are [`Error::Validation`], 429s are [`Error::RateLimit`], and everything
+/// `invalid_metadata`, `from_number_required`, `from_number_not_supported`,
+/// `destination_not_supported`) are [`Error::Validation`], 429s are
+/// [`Error::RateLimit`], and everything
 /// else (403 `live_key_required`, 409 `agent_disabled` / `no_voice_number` /
 /// `lines_busy`, 428 `e911_required`, 503 `voice_unavailable`) is
 /// [`Error::Api`] with `code` set.
@@ -729,24 +777,15 @@ impl<'a> CallsResource<'a> {
         options: IdempotentRequestOptions,
     ) -> Result<Call> {
         if request.to.trim().is_empty() {
-            return Err(Error::Validation {
-                message: "to is required".to_string(),
-            });
+            return Err(Error::validation("to is required"));
         }
         if request.agent_id.trim().is_empty() {
-            return Err(Error::Validation {
-                message: "agentId is required".to_string(),
-            });
+            return Err(Error::validation("agentId is required"));
         }
 
         let response = self
             .client
-            .post_with_idempotency(
-                "/calls",
-                &request,
-                options.idempotency_key.as_deref(),
-                true,
-            )
+            .post_with_idempotency("/calls", &request, options.idempotency_key.as_deref(), true)
             .await?;
         Ok(response.json().await?)
     }
@@ -903,9 +942,7 @@ impl<'a> CallsResource<'a> {
 
 fn encode_call_id(id: &str) -> Result<String> {
     if id.trim().is_empty() {
-        return Err(Error::Validation {
-            message: "Call id is required".to_string(),
-        });
+        return Err(Error::validation("Call id is required"));
     }
-    Ok(urlencoding::encode(id).into_owned())
+    path_id(id)
 }

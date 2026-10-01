@@ -58,7 +58,7 @@ async fn test_schedule_invalid_phone() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Invalid phone number format"));
         }
         _ => panic!("Expected Validation error"),
@@ -84,7 +84,7 @@ async fn test_schedule_empty_text() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Message text is required"));
         }
         _ => panic!("Expected Validation error"),
@@ -112,7 +112,7 @@ async fn test_schedule_text_too_long() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("exceeds maximum length"));
         }
         _ => panic!("Expected Validation error"),
@@ -138,7 +138,7 @@ async fn test_schedule_empty_scheduled_at() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("scheduled_at is required"));
         }
         _ => panic!("Expected Validation error"),
@@ -444,7 +444,7 @@ async fn test_get_scheduled_empty_id() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Scheduled message ID is required"));
         }
         _ => panic!("Expected Validation error"),
@@ -469,7 +469,7 @@ async fn test_get_scheduled_not_found() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::NotFound { message } => {
+        Error::NotFound { message, .. } => {
             assert!(message.contains("not found"));
         }
         _ => panic!("Expected NotFound error"),
@@ -575,7 +575,7 @@ async fn test_cancel_scheduled_empty_id() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Scheduled message ID is required"));
         }
         _ => panic!("Expected Validation error"),
@@ -603,7 +603,7 @@ async fn test_cancel_scheduled_not_found() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::NotFound { message } => {
+        Error::NotFound { message, .. } => {
             assert!(message.contains("not found"));
         }
         _ => panic!("Expected NotFound error"),
@@ -680,4 +680,79 @@ async fn test_cancel_scheduled_server_error() {
         }
         _ => panic!("Expected Api error"),
     }
+}
+
+fn scheduled_row(id: &str, status: &str) -> serde_json::Value {
+    json!({
+        "id": id,
+        "to": "+15555550100",
+        "text": "Reminder: your appointment is tomorrow",
+        "scheduledAt": "2026-09-26T15:00:00.000Z",
+        "timezone": "America/New_York",
+        "status": status,
+        "creditsReserved": 2,
+        "segments": 1,
+        "senderType": "number_pool",
+        "createdAt": "2026-09-25T10:00:00.000Z",
+        "metadata": {}
+    })
+}
+
+#[tokio::test]
+async fn test_list_scheduled_keeps_delivered_bounced_and_unknown_statuses() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/messages/scheduled"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [
+                scheduled_row("sched_1", "delivered"),
+                scheduled_row("sched_2", "bounced"),
+                scheduled_row("sched_3", "brand_new")
+            ],
+            "count": 3
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let list = client
+        .messages()
+        .list_scheduled(None)
+        .await
+        .expect("delivered and bounced rows must decode");
+
+    let statuses: Vec<ScheduledMessageStatus> =
+        list.data.iter().map(|m| m.status.clone()).collect();
+    assert_eq!(
+        statuses,
+        vec![
+            ScheduledMessageStatus::Delivered,
+            ScheduledMessageStatus::Bounced,
+            ScheduledMessageStatus::Unknown
+        ]
+    );
+    assert!(!list.data[1].is_sent());
+}
+
+#[tokio::test]
+async fn test_get_scheduled_keeps_a_delivered_status() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/messages/scheduled/sched_1"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(scheduled_row("sched_1", "delivered")),
+        )
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let scheduled = client
+        .messages()
+        .get_scheduled("sched_1")
+        .await
+        .expect("a delivered scheduled message must decode");
+
+    assert_eq!(scheduled.status, ScheduledMessageStatus::Delivered);
+    assert!(scheduled.is_sent());
+    assert_eq!(scheduled.status.to_string(), "delivered");
 }

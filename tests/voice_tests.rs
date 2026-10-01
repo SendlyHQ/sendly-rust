@@ -451,7 +451,7 @@ async fn test_register_emergency_address_requires_address_fields_before_sending(
             .await
             .unwrap_err()
         {
-            Error::Validation { message } => assert_eq!(message, expected),
+            Error::Validation { message, .. } => assert_eq!(message, expected),
             other => panic!("expected Validation, got {:?}", other),
         }
     }
@@ -493,7 +493,9 @@ async fn test_register_emergency_address_unvalidated_maps_to_validation() {
         .await;
 
     match result.unwrap_err() {
-        Error::Validation { message } => assert_eq!(message, "We couldn't validate that address."),
+        Error::Validation { message, .. } => {
+            assert_eq!(message, "We couldn't validate that address.")
+        }
         other => panic!("expected Validation, got {:?}", other),
     }
 }
@@ -542,7 +544,7 @@ async fn test_number_and_agent_methods_require_an_identifier() {
         Error::Validation { .. }
     ));
     match client.voice().agents().delete("").await.unwrap_err() {
-        Error::Validation { message } => assert_eq!(message, "Agent id is required"),
+        Error::Validation { message, .. } => assert_eq!(message, "Agent id is required"),
         other => panic!("expected Validation, got {:?}", other),
     }
 
@@ -564,7 +566,9 @@ async fn test_voice_not_enabled_maps_to_not_found() {
 
     let client = create_test_client(&mock_server.uri());
     match client.voice().numbers().list().await.unwrap_err() {
-        Error::NotFound { message } => assert_eq!(message, "Voice is not enabled for your account."),
+        Error::NotFound { message, .. } => {
+            assert_eq!(message, "Voice is not enabled for your account.")
+        }
         other => panic!("expected NotFound, got {:?}", other),
     }
 }
@@ -696,7 +700,7 @@ async fn test_agents_create_requires_a_name_before_sending() {
         .await
         .unwrap_err()
     {
-        Error::Validation { message } => assert_eq!(message, "name is required"),
+        Error::Validation { message, .. } => assert_eq!(message, "name is required"),
         other => panic!("expected Validation, got {:?}", other),
     }
 
@@ -865,10 +869,14 @@ async fn test_agents_delete_in_use_surfaces_code() {
             status_code,
             code,
             message,
+            ..
         } => {
             assert_eq!(status_code, 409);
             assert_eq!(code.as_deref(), Some("agent_in_use"));
-            assert_eq!(message, "This agent answers 1 number. Point it elsewhere first.");
+            assert_eq!(
+                message,
+                "This agent answers 1 number. Point it elsewhere first."
+            );
         }
         other => panic!("expected Api, got {:?}", other),
     }
@@ -888,7 +896,7 @@ async fn test_agents_get_not_found_maps_to_not_found() {
 
     let client = create_test_client(&mock_server.uri());
     match client.voice().agents().get(AGENT_ID).await.unwrap_err() {
-        Error::NotFound { message } => {
+        Error::NotFound { message, .. } => {
             assert_eq!(message, "That agent doesn't exist in this workspace.")
         }
         other => panic!("expected NotFound, got {:?}", other),

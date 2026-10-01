@@ -59,18 +59,36 @@ impl Default for MessageDirection {
     }
 }
 
-/// Sender type.
+/// The kind of sender a live send went out from. A simulated send reports
+/// none, so its [`Message::sender_type`] is `None`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SenderType {
-    /// Sent by user via dashboard.
+    /// A toll-free number from Sendly's number pool.
+    NumberPool,
+    /// Your alphanumeric sender ID.
+    Alphanumeric,
+    /// The sandbox sender.
+    Sandbox,
+    /// A number of yours: the `from` you passed, or the number your workspace
+    /// is authorized to send from.
+    Explicit,
+    /// Never sent by the API.
+    #[deprecated(note = "The API never reports this sender type.")]
     User,
-    /// Sent via API.
+    /// Never sent by the API.
+    #[deprecated(note = "The API never reports this sender type.")]
     Api,
-    /// System-generated message.
+    /// Never sent by the API.
+    #[deprecated(note = "The API never reports this sender type.")]
     System,
-    /// Campaign message.
+    /// Never sent by the API.
+    #[deprecated(note = "The API never reports this sender type.")]
     Campaign,
+    /// A sender type this build does not know; the message still decodes.
+    #[serde(other)]
+    Unknown,
 }
 
 /// An SMS message.
@@ -96,10 +114,24 @@ pub struct Message {
     /// Credits consumed.
     #[serde(default, alias = "creditsUsed")]
     pub credits_used: i32,
-    /// Whether sent in sandbox mode.
+    /// Whether sent in sandbox mode. Read from `get` and `list`; the send
+    /// response does not report it, so a send leaves it `false` (see
+    /// [`simulated`](Self::simulated)).
     #[serde(default, alias = "isSandbox")]
     pub is_sandbox: bool,
-    /// Type of sender.
+    /// True when a send was simulated and nothing reached a handset: with a
+    /// test key, to a sandbox number, or from a live key whose account is not
+    /// yet set up to send to the destination. Set on send responses only.
+    #[serde(default)]
+    pub simulated: bool,
+    /// Why a live key's send was simulated instead of sent.
+    #[serde(default, alias = "simulatedReason")]
+    pub simulated_reason: Option<String>,
+    /// Where to finish setting up the account so the next send is real, on a
+    /// simulated live-key send.
+    #[serde(default, alias = "actionUrl")]
+    pub action_url: Option<String>,
+    /// Type of sender, on a live send.
     #[serde(default, alias = "senderType")]
     pub sender_type: Option<SenderType>,
     /// Carrier message ID for tracking.
@@ -360,23 +392,81 @@ impl SendGroupMessageRequest {
 
 /// Response from sending a group MMS.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(from = "RawGroupMessageResponse")]
 pub struct GroupMessageResponse {
     /// Message identifier (matches the `id` in delivery webhooks).
     pub id: String,
     /// Delivery status ("sent" on a live send, "delivered" when simulated).
     pub status: MessageStatus,
-    /// Recipients the group message was sent to.
-    #[serde(default)]
+    /// Phone numbers the group message was sent to.
     pub to: Vec<String>,
+    /// Each recipient with its status. Live sends carry it; simulated sends
+    /// leave it empty.
+    pub recipients: Vec<GroupRecipient>,
     /// Identifier for the group conversation (present on live sends).
-    #[serde(default, alias = "groupMessageId")]
     pub group_message_id: Option<String>,
     /// True when the send was simulated and nothing was sent to the carrier.
-    #[serde(default)]
     pub simulated: Option<bool>,
     /// Human-readable note, present on simulated sends.
-    #[serde(default)]
     pub message: Option<String>,
+}
+
+/// One recipient of a live group send.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GroupRecipient {
+    /// The recipient's phone number in E.164 format.
+    #[serde(default, rename = "phoneNumber")]
+    pub phone_number: String,
+    /// The recipient's status when the send was accepted, for example
+    /// `"queued"`.
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawGroupTo {
+    Number(String),
+    Recipient(GroupRecipient),
+}
+
+#[derive(Deserialize)]
+struct RawGroupMessageResponse {
+    id: String,
+    status: MessageStatus,
+    #[serde(default)]
+    to: Vec<RawGroupTo>,
+    #[serde(default, alias = "groupMessageId")]
+    group_message_id: Option<String>,
+    #[serde(default)]
+    simulated: Option<bool>,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+impl From<RawGroupMessageResponse> for GroupMessageResponse {
+    fn from(raw: RawGroupMessageResponse) -> Self {
+        let mut to = Vec::with_capacity(raw.to.len());
+        let mut recipients = Vec::new();
+        for entry in raw.to {
+            match entry {
+                RawGroupTo::Number(number) => to.push(number),
+                RawGroupTo::Recipient(recipient) => {
+                    to.push(recipient.phone_number.clone());
+                    recipients.push(recipient);
+                }
+            }
+        }
+        Self {
+            id: raw.id,
+            status: raw.status,
+            to,
+            recipients,
+            group_message_id: raw.group_message_id,
+            simulated: raw.simulated,
+            message: raw.message,
+        }
+    }
 }
 
 /// Request to AI-enhance a draft message. Provide `text`, `message_type`, or
@@ -502,14 +592,43 @@ impl ListMessagesOptions {
     }
 }
 
+/// Page metadata returned by [`Messages::list`](crate::Messages::list).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct MessagePagination {
+    /// Messages matching the filters, across all pages.
+    #[serde(default)]
+    pub total: i64,
+    /// Page size that was applied.
+    #[serde(default)]
+    pub limit: i64,
+    /// Offset that was applied.
+    #[serde(default)]
+    pub offset: i64,
+    /// Page number, starting at 1.
+    #[serde(default)]
+    pub page: i64,
+    /// Number of pages at this page size.
+    #[serde(default)]
+    pub total_pages: i64,
+    /// Whether another page follows.
+    #[serde(default)]
+    pub has_more: bool,
+}
+
 /// Paginated list of messages.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MessageList {
     /// Messages in this page.
     pub data: Vec<Message>,
-    /// Total count of messages matching the query.
+    /// Number of messages in this page. For the number matching the query,
+    /// use [`total`](Self::total).
     #[serde(default)]
     pub count: i32,
+    /// Paging details, including the total across all pages.
+    #[serde(default)]
+    pub pagination: Option<MessagePagination>,
 }
 
 impl MessageList {
@@ -523,9 +642,12 @@ impl MessageList {
         self.data.is_empty()
     }
 
-    /// Returns the total count of messages.
+    /// Returns the number of messages matching the query across all pages,
+    /// or the page size when the response carries no pagination.
     pub fn total(&self) -> i32 {
-        self.count
+        self.pagination
+            .as_ref()
+            .map_or(self.count, |p| i32::try_from(p.total).unwrap_or(i32::MAX))
     }
 
     /// Returns the first message.
@@ -558,15 +680,23 @@ impl IntoIterator for MessageList {
 /// Status of a scheduled message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum ScheduledMessageStatus {
     /// Message is scheduled for future delivery.
     Scheduled,
     /// Message was sent.
     Sent,
+    /// Message was delivered.
+    Delivered,
     /// Message was cancelled.
     Cancelled,
     /// Message failed to send.
     Failed,
+    /// Message bounced (carrier rejected).
+    Bounced,
+    /// A status this build does not know; the message still deserialises.
+    #[serde(other)]
+    Unknown,
 }
 
 impl std::fmt::Display for ScheduledMessageStatus {
@@ -574,8 +704,11 @@ impl std::fmt::Display for ScheduledMessageStatus {
         match self {
             ScheduledMessageStatus::Scheduled => write!(f, "scheduled"),
             ScheduledMessageStatus::Sent => write!(f, "sent"),
+            ScheduledMessageStatus::Delivered => write!(f, "delivered"),
             ScheduledMessageStatus::Cancelled => write!(f, "cancelled"),
             ScheduledMessageStatus::Failed => write!(f, "failed"),
+            ScheduledMessageStatus::Bounced => write!(f, "bounced"),
+            ScheduledMessageStatus::Unknown => write!(f, "unknown"),
         }
     }
 }
@@ -620,9 +753,12 @@ impl ScheduledMessage {
         self.status == ScheduledMessageStatus::Scheduled
     }
 
-    /// Returns true if the message was sent.
+    /// Returns true if the message was sent, including once it is delivered.
     pub fn is_sent(&self) -> bool {
-        self.status == ScheduledMessageStatus::Sent
+        matches!(
+            self.status,
+            ScheduledMessageStatus::Sent | ScheduledMessageStatus::Delivered
+        )
     }
 
     /// Returns true if the message was cancelled.
@@ -697,7 +833,9 @@ impl ListScheduledMessagesOptions {
             params.push(("offset".to_string(), offset.to_string()));
         }
         if let Some(ref status) = self.status {
-            params.push(("status".to_string(), status.to_string()));
+            if *status != ScheduledMessageStatus::Unknown {
+                params.push(("status".to_string(), status.to_string()));
+            }
         }
 
         params
@@ -709,7 +847,8 @@ impl ListScheduledMessagesOptions {
 pub struct ScheduledMessageList {
     /// Scheduled messages in this page.
     pub data: Vec<ScheduledMessage>,
-    /// Total count of scheduled messages.
+    /// Number of scheduled messages in this page. The API reports no total
+    /// across pages.
     #[serde(default)]
     pub count: i32,
 }
@@ -725,7 +864,10 @@ impl ScheduledMessageList {
         self.data.is_empty()
     }
 
-    /// Returns the total count.
+    /// Returns the number of scheduled messages in this page.
+    #[deprecated(
+        note = "The API reports no total across pages; this is the page size, the same as `len()`."
+    )]
     pub fn total(&self) -> i32 {
         self.count
     }
@@ -828,11 +970,14 @@ pub struct BatchMessageResult {
     pub delivered_at: Option<String>,
 }
 
-/// Response from sending batch messages.
+/// A message batch: the result of sending one, or its status from
+/// [`get_batch`](crate::Messages::get_batch) and
+/// [`list_batches`](crate::Messages::list_batches).
 #[derive(Debug, Clone, Deserialize)]
 pub struct BatchMessageResponse {
-    /// Unique batch identifier.
-    #[serde(alias = "batchId")]
+    /// Unique batch identifier. The send response calls it `batchId` and the
+    /// status responses `id`.
+    #[serde(alias = "batchId", alias = "id")]
     pub batch_id: String,
     /// Batch status.
     pub status: BatchStatus,
@@ -843,11 +988,20 @@ pub struct BatchMessageResponse {
     pub queued: i32,
     /// Messages sent.
     pub sent: i32,
+    /// Messages delivered (absent on the batch-create response).
+    #[serde(default)]
+    pub delivered: i32,
     /// Messages failed.
     pub failed: i32,
+    /// Credits reserved for the batch (absent on the batch-create response).
+    #[serde(default, alias = "creditsReserved")]
+    pub credits_reserved: i32,
     /// Total credits used.
     #[serde(default, alias = "creditsUsed")]
     pub credits_used: i32,
+    /// Credits refunded for messages that failed.
+    #[serde(default, alias = "creditsRefunded")]
+    pub credits_refunded: i32,
     /// Results for each message.
     #[serde(default)]
     pub messages: Vec<BatchMessageResult>,
@@ -903,36 +1057,153 @@ pub struct BatchPreviewItem {
     pub pricing_tier: Option<String>,
 }
 
+/// A message the batch preview found it cannot send.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct BatchPreviewBlockedMessage {
+    /// Position of the message in the request.
+    #[serde(default)]
+    pub index: i32,
+    /// Recipient phone number.
+    #[serde(default)]
+    pub to: String,
+    /// Why it cannot be sent.
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Deserialize)]
+struct BatchPreviewWire {
+    #[serde(default, alias = "canSend")]
+    can_send: Option<bool>,
+    #[serde(default)]
+    total: Option<i32>,
+    #[serde(default, alias = "totalMessages")]
+    total_messages: Option<i32>,
+    #[serde(default)]
+    sendable: Option<i32>,
+    #[serde(default, alias = "willSend")]
+    will_send: Option<i32>,
+    #[serde(default)]
+    blocked: i32,
+    #[serde(default)]
+    duplicates: i32,
+    #[serde(default, alias = "creditsNeeded")]
+    credits_needed: i32,
+    #[serde(default, rename = "creditBalance")]
+    credit_balance: Option<i32>,
+    #[serde(default, alias = "currentBalance")]
+    current_balance: Option<i32>,
+    #[serde(default, rename = "hasSufficientCredits")]
+    has_sufficient_credits: Option<bool>,
+    #[serde(default, alias = "hasEnoughCredits")]
+    has_enough_credits: Option<bool>,
+    #[serde(default, alias = "keyType")]
+    key_type: Option<String>,
+    #[serde(default, alias = "hasWriteScope")]
+    has_write_scope: bool,
+    #[serde(default)]
+    pooled: bool,
+    #[serde(default, alias = "blockedMessages")]
+    blocked_messages: Vec<BatchPreviewBlockedMessage>,
+    #[serde(default)]
+    compliance: Option<serde_json::Value>,
+    #[serde(default)]
+    warnings: Vec<String>,
+    #[serde(default)]
+    messages: Vec<BatchPreviewItem>,
+    #[serde(default, alias = "blockReasons")]
+    block_reasons: Option<std::collections::HashMap<String, i32>>,
+}
+
 /// Response from previewing a batch (dry run).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "BatchPreviewWire")]
 pub struct BatchPreviewResponse {
-    /// Whether the entire batch can be sent.
-    #[serde(alias = "canSend")]
+    /// Whether nothing the preview found stops a send: the key can send, the
+    /// batch has at most 10,000 messages, at least one message is sendable,
+    /// nothing is blocked for a reason other than an opt-out (a live send
+    /// rejects the whole batch then), and, for a live key, the balance covers
+    /// it. A test key's send skips the destination and verification checks,
+    /// so it can go through while `can_send` is false.
     pub can_send: bool,
     /// Total number of messages.
-    #[serde(default, alias = "totalMessages")]
     pub total_messages: i32,
     /// Number of messages that will be sent.
-    #[serde(default, alias = "willSend")]
     pub will_send: i32,
     /// Number of messages that are blocked.
-    #[serde(default)]
     pub blocked: i32,
+    /// Number of duplicate recipients, which the send removes.
+    pub duplicates: i32,
     /// Total credits needed.
-    #[serde(default, alias = "creditsNeeded")]
     pub credits_needed: i32,
     /// Current credit balance.
-    #[serde(default, alias = "currentBalance")]
     pub current_balance: i32,
     /// Whether there are enough credits.
-    #[serde(default, alias = "hasEnoughCredits")]
     pub has_enough_credits: bool,
+    /// `"test"` or `"live"`: the kind of key the preview ran with.
+    pub key_type: Option<String>,
+    /// Whether the key has the `sms:send` scope a send needs.
+    pub has_write_scope: bool,
+    /// Whether the balance is an enterprise credit pool.
+    pub pooled: bool,
+    /// The messages that cannot be sent, and why.
+    pub blocked_messages: Vec<BatchPreviewBlockedMessage>,
+    /// Warnings about the batch that do not block it.
+    pub warnings: Vec<String>,
     /// Preview for each message.
-    #[serde(default)]
+    #[deprecated(
+        note = "The API does not preview each message; this is always empty. Read `blocked_messages` for the ones it cannot send."
+    )]
     pub messages: Vec<BatchPreviewItem>,
     /// Count of block reasons.
-    #[serde(default, alias = "blockReasons")]
+    #[deprecated(
+        note = "The API does not send this; it is always `None`. Read `blocked_messages`."
+    )]
     pub block_reasons: Option<std::collections::HashMap<String, i32>>,
+}
+
+impl From<BatchPreviewWire> for BatchPreviewResponse {
+    #[allow(deprecated)]
+    fn from(wire: BatchPreviewWire) -> Self {
+        let current_balance = wire.credit_balance.or(wire.current_balance).unwrap_or(0);
+        let has_enough_credits = wire
+            .has_sufficient_credits
+            .or(wire.has_enough_credits)
+            .unwrap_or(false);
+        let will_send = wire.sendable.or(wire.will_send).unwrap_or(0);
+        let opted_out = wire
+            .compliance
+            .as_ref()
+            .and_then(|c| c.get("optedOutBlocked"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let total_messages = wire.total.or(wire.total_messages).unwrap_or(0);
+        let can_send = wire.can_send.unwrap_or_else(|| {
+            wire.has_write_scope
+                && total_messages <= 10_000
+                && will_send > 0
+                && i64::from(wire.blocked) <= opted_out
+                && (wire.key_type.as_deref() == Some("test") || has_enough_credits)
+        });
+        Self {
+            can_send,
+            total_messages,
+            will_send,
+            blocked: wire.blocked,
+            duplicates: wire.duplicates,
+            credits_needed: wire.credits_needed,
+            current_balance,
+            has_enough_credits,
+            key_type: wire.key_type,
+            has_write_scope: wire.has_write_scope,
+            pooled: wire.pooled,
+            blocked_messages: wire.blocked_messages,
+            warnings: wire.warnings,
+            messages: wire.messages,
+            block_reasons: wire.block_reasons,
+        }
+    }
 }
 
 /// Options for listing batches.
@@ -992,7 +1263,8 @@ impl ListBatchesOptions {
 pub struct BatchList {
     /// Batches in this page.
     pub data: Vec<BatchMessageResponse>,
-    /// Total count of batches.
+    /// Number of batches in this page. The API reports no total across
+    /// pages.
     #[serde(default)]
     pub count: i32,
 }
@@ -1008,7 +1280,10 @@ impl BatchList {
         self.data.is_empty()
     }
 
-    /// Returns the total count.
+    /// Returns the number of batches in this page.
+    #[deprecated(
+        note = "The API reports no total across pages; this is the page size, the same as `len()`."
+    )]
     pub fn total(&self) -> i32 {
         self.count
     }
@@ -1341,28 +1616,88 @@ pub struct WebhookDeliveryList {
     #[serde(default, alias = "deliveries")]
     pub data: Vec<WebhookDelivery>,
     /// Total count of deliveries.
+    #[deprecated(
+        note = "The API reports no total; this is always 0. A page shorter than the limit you asked for is the last one."
+    )]
     #[serde(default)]
     pub total: i32,
     /// Whether there are more deliveries.
+    #[deprecated(
+        note = "The API does not report this; it is always false. A page shorter than the limit you asked for is the last one."
+    )]
     #[serde(default, alias = "hasMore")]
     pub has_more: bool,
 }
 
+#[derive(Deserialize)]
+struct WebhookTestResultWire {
+    #[serde(default)]
+    success: bool,
+    #[serde(default, alias = "statusCode")]
+    status_code: Option<i32>,
+    #[serde(default, alias = "responseTimeMs")]
+    response_time_ms: Option<i32>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    delivery: Option<serde_json::Value>,
+}
+
 /// Result from testing a webhook.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(from = "WebhookTestResultWire")]
 pub struct WebhookTestResult {
     /// Whether the test was successful.
-    #[serde(default)]
     pub success: bool,
     /// HTTP status code from the endpoint.
-    #[serde(default, alias = "statusCode")]
     pub status_code: i32,
     /// Response time in milliseconds.
-    #[serde(default, alias = "responseTimeMs")]
     pub response_time_ms: i32,
     /// Error message if the test failed.
-    #[serde(default)]
     pub error: Option<String>,
+    /// What happened, in words (for example `Test webhook delivered
+    /// successfully in 87ms`).
+    pub message: Option<String>,
+    /// The test delivery the API recorded (`id`, `status`, `status_code`,
+    /// `response_time`, `response_body`, ...).
+    pub delivery: Option<serde_json::Value>,
+}
+
+impl From<WebhookTestResultWire> for WebhookTestResult {
+    fn from(wire: WebhookTestResultWire) -> Self {
+        let delivery_field = |key: &str| {
+            wire.delivery
+                .as_ref()
+                .and_then(|d| d.get(key))
+                .and_then(|v| v.as_i64())
+                .and_then(|n| i32::try_from(n).ok())
+        };
+        let status_code = wire
+            .status_code
+            .or_else(|| delivery_field("status_code"))
+            .unwrap_or(0);
+        let response_time_ms = wire
+            .response_time_ms
+            .or_else(|| delivery_field("response_time"))
+            .unwrap_or(0);
+        let error = wire.error.or_else(|| {
+            wire.delivery
+                .as_ref()
+                .and_then(|d| d.get("error"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        });
+        Self {
+            success: wire.success,
+            status_code,
+            response_time_ms,
+            error,
+            message: wire.message,
+            delivery: wire.delivery,
+        }
+    }
 }
 
 /// Response from rotating a webhook secret.
@@ -1429,11 +1764,16 @@ pub struct Credits {
     #[serde(default, alias = "availableBalance")]
     pub available_balance: i32,
     /// Credits pending from purchases.
+    #[deprecated(note = "The API has no pending balance; this is always 0.")]
     #[serde(default, alias = "pendingCredits")]
     pub pending_credits: i32,
-    /// Credits reserved for scheduled messages.
-    #[serde(default, alias = "reservedCredits")]
+    /// Credits reserved for messages that are scheduled or still sending.
+    #[serde(default, alias = "reservedBalance", alias = "reservedCredits")]
     pub reserved_credits: i32,
+    /// `"prepaid"` for a workspace's own balance, or `"pooled"` when it draws
+    /// on an enterprise credit pool.
+    #[serde(default, alias = "billingMode")]
+    pub billing_mode: Option<String>,
     /// Currency code.
     #[serde(default = "default_currency")]
     pub currency: String,
@@ -1452,9 +1792,10 @@ impl Credits {
 
 /// Credit transaction type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum TransactionType {
-    /// Credit purchase.
+    /// Credit purchase, including an auto-recharge.
     Purchase,
     /// Credit usage (sending messages).
     Usage,
@@ -1462,8 +1803,35 @@ pub enum TransactionType {
     Refund,
     /// Bonus credits.
     Bonus,
+    /// Credits moved between workspaces.
+    Transfer,
+    /// Credits Sendly added to the account by hand.
+    AdminGrant,
+    /// Test credits Sendly seeded into the account.
+    AdminSeed,
     /// Manual adjustment.
+    #[deprecated(note = "The API never records an adjustment; Sendly's grants are `AdminGrant`.")]
     Adjustment,
+    /// A type this build does not know; the transaction still deserialises.
+    #[serde(other)]
+    Unknown,
+}
+
+impl std::fmt::Display for TransactionType {
+    #[allow(deprecated)]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransactionType::Purchase => write!(f, "purchase"),
+            TransactionType::Usage => write!(f, "usage"),
+            TransactionType::Refund => write!(f, "refund"),
+            TransactionType::Bonus => write!(f, "bonus"),
+            TransactionType::Transfer => write!(f, "transfer"),
+            TransactionType::AdminGrant => write!(f, "admin_grant"),
+            TransactionType::AdminSeed => write!(f, "admin_seed"),
+            TransactionType::Adjustment => write!(f, "adjustment"),
+            TransactionType::Unknown => write!(f, "unknown"),
+        }
+    }
 }
 
 /// A credit transaction.
@@ -1510,9 +1878,15 @@ pub struct CreditTransactionList {
     #[serde(default, alias = "transactions")]
     pub data: Vec<CreditTransaction>,
     /// Total count of transactions.
+    #[deprecated(
+        note = "The API reports no total; this is always 0. A page shorter than the limit you asked for is the last one."
+    )]
     #[serde(default)]
     pub total: i32,
     /// Whether there are more transactions.
+    #[deprecated(
+        note = "The API does not report this; it is always false. A page shorter than the limit you asked for is the last one."
+    )]
     #[serde(default, alias = "hasMore")]
     pub has_more: bool,
 }
@@ -1562,14 +1936,9 @@ impl ListTransactionsOptions {
             params.push(("offset".to_string(), offset.to_string()));
         }
         if let Some(ref t) = self.transaction_type {
-            let type_str = match t {
-                TransactionType::Purchase => "purchase",
-                TransactionType::Usage => "usage",
-                TransactionType::Refund => "refund",
-                TransactionType::Bonus => "bonus",
-                TransactionType::Adjustment => "adjustment",
-            };
-            params.push(("type".to_string(), type_str.to_string()));
+            if *t != TransactionType::Unknown {
+                params.push(("type".to_string(), t.to_string()));
+            }
         }
 
         params
@@ -1616,6 +1985,12 @@ pub struct ApiKey {
     /// Whether the key is active.
     #[serde(default = "default_true", alias = "isActive")]
     pub is_active: bool,
+    /// `"test"` or `"live"`.
+    #[serde(default, rename = "type")]
+    pub key_type: Option<String>,
+    /// The scopes the key grants, such as `sms:send`.
+    #[serde(default)]
+    pub scopes: Option<Vec<String>>,
 }
 
 /// Response from creating an API key.
@@ -1627,16 +2002,65 @@ pub struct CreateApiKeyResponse {
     /// The full API key value (only shown once).
     #[serde(default)]
     pub key: String,
+    /// The created key's ID.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// The created key's display name.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// The created key's prefix.
+    #[serde(default, alias = "keyPrefix")]
+    pub key_prefix: Option<String>,
+    /// `"test"` or `"live"`.
+    #[serde(default, rename = "type")]
+    pub key_type: Option<String>,
 }
 
 /// Request to create an API key.
-#[derive(Debug, Clone, Serialize)]
+///
+/// Build with [`CreateApiKeyRequest::new`] and the builder methods.
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct CreateApiKeyRequest {
     /// Display name for the API key.
     pub name: String,
-    /// Optional expiration date.
-    #[serde(skip_serializing_if = "Option::is_none", rename = "expires_at")]
+    /// Optional expiration date (ISO 8601, in the future).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "expiresAt")]
     pub expires_at: Option<String>,
+    /// `"test"` or `"live"`. Omitted, the API creates a test key.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    pub key_type: Option<String>,
+    /// Scopes to grant, such as `sms:send`; each must be one the calling key
+    /// has. Omitted, the new key gets the calling key's scopes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
+}
+
+impl CreateApiKeyRequest {
+    /// Creates a request for a key with this display name.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Sets the key type: `"test"` or `"live"`.
+    pub fn key_type(mut self, key_type: impl Into<String>) -> Self {
+        self.key_type = Some(key_type.into());
+        self
+    }
+
+    /// Sets the scopes to grant.
+    pub fn scopes(mut self, scopes: Vec<impl Into<String>>) -> Self {
+        self.scopes = Some(scopes.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
+    /// Sets when the key expires (ISO 8601, in the future).
+    pub fn expires_at(mut self, expires_at: impl Into<String>) -> Self {
+        self.expires_at = Some(expires_at.into());
+        self
+    }
 }
 
 /// Request to rotate an API key.
@@ -1694,6 +2118,9 @@ pub struct RotateApiKeyResponse {
 }
 
 /// Account verification status.
+#[deprecated(
+    note = "The API reports no email, phone or identity verification; read `Account::business_verification`."
+)]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct AccountVerification {
     /// Whether email is verified.
@@ -1707,6 +2134,7 @@ pub struct AccountVerification {
     pub identity_verified: bool,
 }
 
+#[allow(deprecated)]
 impl AccountVerification {
     /// Returns true if fully verified.
     pub fn is_fully_verified(&self) -> bool {
@@ -1718,14 +2146,24 @@ impl AccountVerification {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AccountLimits {
     /// Maximum messages per second.
+    #[deprecated(
+        note = "The API does not report a per-second limit; this is always 10. Read `messages_per_minute`."
+    )]
     #[serde(default = "default_mps", alias = "messagesPerSecond")]
     pub messages_per_second: i32,
-    /// Maximum messages per day.
+    /// Maximum messages per day: 100 with a test key, 10,000 with a live
+    /// one.
     #[serde(default = "default_mpd", alias = "messagesPerDay")]
     pub messages_per_day: i32,
     /// Maximum batch size.
+    #[deprecated(
+        note = "The API does not report this; it is always 1000. A batch takes up to 10,000 messages."
+    )]
     #[serde(default = "default_batch", alias = "maxBatchSize")]
     pub max_batch_size: i32,
+    /// Maximum messages per minute.
+    #[serde(default, alias = "messagesPerMinute")]
+    pub messages_per_minute: Option<i32>,
 }
 
 fn default_mps() -> i32 {
@@ -1739,30 +2177,76 @@ fn default_batch() -> i32 {
 }
 
 impl Default for AccountLimits {
+    #[allow(deprecated)]
     fn default() -> Self {
         Self {
             messages_per_second: 10,
             messages_per_day: 10000,
             max_batch_size: 1000,
+            messages_per_minute: None,
         }
     }
 }
 
+/// The workspace an API key belongs to.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct AccountOrganization {
+    /// Workspace ID, the `organization_id` webhook payloads carry.
+    pub id: String,
+    /// Workspace name.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Whether this is the user's personal workspace.
+    #[serde(default)]
+    pub is_personal: bool,
+}
+
+/// The business verification that decides where an account can send.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct AccountBusinessVerification {
+    /// Status, such as `verified`, `processing`, `action_required` or
+    /// `rejected`.
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Verification type, such as `toll_free`.
+    #[serde(default, rename = "type")]
+    pub verification_type: Option<String>,
+    /// Region the verification covers.
+    #[serde(default)]
+    pub region: Option<String>,
+    /// When it was submitted.
+    #[serde(default)]
+    pub submitted_at: Option<String>,
+    /// When it last changed.
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 /// Account information.
+#[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct Account {
-    /// Unique account identifier.
+    /// Unique account identifier (the user ID).
     pub id: String,
     /// Account email address.
     #[serde(default)]
     pub email: String,
     /// Account holder name.
+    #[deprecated(note = "The API does not send this; it is always `None`.")]
     #[serde(default)]
     pub name: Option<String>,
     /// Company name.
+    #[deprecated(note = "The API does not send this; it is always `None`.")]
     #[serde(default, alias = "companyName")]
     pub company_name: Option<String>,
     /// Verification status.
+    #[deprecated(
+        note = "The API reports no email, phone or identity verification; read `business_verification`."
+    )]
     #[serde(default)]
     pub verification: AccountVerification,
     /// Rate limits.
@@ -1771,6 +2255,14 @@ pub struct Account {
     /// Account creation timestamp.
     #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
+    /// The workspace the API key belongs to; `None` for a key that belongs
+    /// to no workspace.
+    #[serde(default)]
+    pub organization: Option<AccountOrganization>,
+    /// The business verification, or `None` when the account has not
+    /// submitted one.
+    #[serde(default)]
+    pub business_verification: Option<AccountBusinessVerification>,
 }
 
 // ==================== Enterprise Types ====================
@@ -1864,6 +2356,217 @@ pub struct EnterpriseWorkspaceDetail {
     pub credits: i64,
     #[serde(default, alias = "keyCount")]
     pub key_count: i32,
+}
+
+/// One workspace in [`EnterpriseWorkspaceList`]. A compact list carries
+/// only `id`, `name` and `credit_balance`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct EnterpriseWorkspaceListItem {
+    /// Workspace ID.
+    pub id: String,
+    /// Workspace name.
+    #[serde(default)]
+    pub name: String,
+    /// Workspace slug.
+    #[serde(default)]
+    pub slug: Option<String>,
+    /// `active` or `suspended`.
+    #[serde(default)]
+    pub status: Option<String>,
+    /// When the workspace was suspended.
+    #[serde(default)]
+    pub suspended_at: Option<String>,
+    /// Why the workspace was suspended.
+    #[serde(default)]
+    pub suspend_reason: Option<String>,
+    /// Verification status, or `None` before one is submitted.
+    #[serde(default)]
+    pub verification_status: Option<String>,
+    /// Why the verification was rejected.
+    #[serde(default)]
+    pub rejection_reason: Option<String>,
+    /// Verification type, such as `toll_free`.
+    #[serde(default)]
+    pub verification_type: Option<String>,
+    /// The workspace's verified toll-free number.
+    #[serde(default)]
+    pub toll_free_number: Option<String>,
+    /// The workspace's credit balance.
+    #[serde(default)]
+    pub credit_balance: i64,
+    /// Number of active API keys.
+    #[serde(default)]
+    pub key_count: i64,
+    /// Messages sent in the last 30 days.
+    #[serde(default, rename = "messages30d")]
+    pub messages_30d: i64,
+    /// Messages delivered in the last 30 days.
+    #[serde(default, rename = "delivered30d")]
+    pub delivered_30d: i64,
+    /// Messages that failed in the last 30 days.
+    #[serde(default, rename = "failed30d")]
+    pub failed_30d: i64,
+    /// Monthly message quota, or `None` for no quota.
+    #[serde(default)]
+    pub monthly_message_quota: Option<i64>,
+    /// Messages sent this month.
+    #[serde(default)]
+    pub messages_this_month: i64,
+    /// When the monthly count resets.
+    #[serde(default)]
+    pub quota_reset_at: Option<String>,
+    /// When the workspace was created.
+    #[serde(default)]
+    pub created_at: Option<String>,
+    /// The workspace's tags.
+    #[serde(default)]
+    pub tags: Vec<serde_json::Value>,
+}
+
+/// Page metadata for [`EnterpriseWorkspaceList`].
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct EnterpriseWorkspacePagination {
+    /// Workspaces matching the filters, across all pages.
+    #[serde(default)]
+    pub total: i64,
+    /// Page size that was applied.
+    #[serde(default)]
+    pub limit: i64,
+    /// Page number, starting at 1.
+    #[serde(default)]
+    pub page: i64,
+    /// Number of pages at this page size.
+    #[serde(default)]
+    pub total_pages: i64,
+    /// Whether another page follows.
+    #[serde(default)]
+    pub has_more: bool,
+}
+
+/// A page of the enterprise's workspaces.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct EnterpriseWorkspaceList {
+    /// The workspaces on this page.
+    #[serde(default)]
+    pub workspaces: Vec<EnterpriseWorkspaceListItem>,
+    /// Page metadata; `None` for a compact list, which is not paginated.
+    #[serde(default)]
+    pub pagination: Option<EnterpriseWorkspacePagination>,
+    /// Totals across all workspaces: credits, verifications pending and a
+    /// breakdown by verification status.
+    #[serde(default)]
+    pub summary: Option<serde_json::Value>,
+    /// How many workspaces the enterprise plan allows.
+    #[serde(default)]
+    pub max_workspaces: i64,
+    /// How many workspaces exist.
+    #[serde(default)]
+    pub workspaces_used: i64,
+}
+
+/// Options for listing enterprise workspaces.
+#[derive(Debug, Clone, Default)]
+pub struct ListWorkspacesOptions {
+    /// Page number, starting at 1.
+    pub page: Option<u32>,
+    /// Workspaces per page (default 50, max 100). A limit of 0 is not sent.
+    pub limit: Option<u32>,
+    /// Only workspaces whose name contains this text.
+    pub search: Option<String>,
+    /// `all` (the default), `active` or `suspended`.
+    pub status: Option<String>,
+    /// Only workspaces in this verification state: `unverified`, or a status
+    /// such as `verified` or `rejected`.
+    pub verification: Option<String>,
+    /// `name_asc`, `name_desc`, `created_asc`, `created_desc` (the default),
+    /// `credits_asc` or `credits_desc`.
+    pub sort: Option<String>,
+    /// Only workspaces with any of these tag IDs.
+    pub tags: Option<Vec<String>>,
+    /// Every workspace with only its ID, name and balance, unpaginated; the
+    /// other options do not apply.
+    pub compact: bool,
+}
+
+impl ListWorkspacesOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn page(mut self, page: u32) -> Self {
+        self.page = Some(page);
+        self
+    }
+
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit.clamp(1, 100));
+        self
+    }
+
+    pub fn search(mut self, search: impl Into<String>) -> Self {
+        self.search = Some(search.into());
+        self
+    }
+
+    pub fn status(mut self, status: impl Into<String>) -> Self {
+        self.status = Some(status.into());
+        self
+    }
+
+    pub fn verification(mut self, verification: impl Into<String>) -> Self {
+        self.verification = Some(verification.into());
+        self
+    }
+
+    pub fn sort(mut self, sort: impl Into<String>) -> Self {
+        self.sort = Some(sort.into());
+        self
+    }
+
+    pub fn tags(mut self, tags: Vec<impl Into<String>>) -> Self {
+        self.tags = Some(tags.into_iter().map(|t| t.into()).collect());
+        self
+    }
+
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
+        self
+    }
+
+    pub(crate) fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(page) = self.page {
+            params.push(("page".to_string(), page.to_string()));
+        }
+        if let Some(limit) = self.limit.filter(|&limit| limit > 0) {
+            params.push(("limit".to_string(), limit.to_string()));
+        }
+        if let Some(ref search) = self.search {
+            params.push(("search".to_string(), search.clone()));
+        }
+        if let Some(ref status) = self.status {
+            params.push(("status".to_string(), status.clone()));
+        }
+        if let Some(ref verification) = self.verification {
+            params.push(("verification".to_string(), verification.clone()));
+        }
+        if let Some(ref sort) = self.sort {
+            params.push(("sort".to_string(), sort.clone()));
+        }
+        if let Some(ref tags) = self.tags {
+            params.push(("tags".to_string(), tags.join(",")));
+        }
+        if self.compact {
+            params.push(("compact".to_string(), "true".to_string()));
+        }
+        params
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1982,6 +2685,40 @@ pub struct InheritVerificationRequest {
     pub source_workspace_id: String,
 }
 
+/// Options for `enterprise().workspaces().inherit_verification_with_options()`.
+#[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
+pub struct InheritVerificationOptions {
+    /// The workspace whose verification to copy.
+    #[serde(rename = "sourceWorkspaceId")]
+    pub source_workspace_id: String,
+    /// Copy only the business details and order the workspace its own
+    /// toll-free number, which is submitted for verification on its own,
+    /// instead of sharing the source workspace's number.
+    #[serde(
+        rename = "purchaseNewNumber",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub purchase_new_number: bool,
+}
+
+impl InheritVerificationOptions {
+    /// Inherits from this source workspace, sharing its verified number.
+    pub fn new(source_workspace_id: impl Into<String>) -> Self {
+        Self {
+            source_workspace_id: source_workspace_id.into(),
+            purchase_new_number: false,
+        }
+    }
+
+    /// Orders the workspace its own toll-free number instead of sharing the
+    /// source workspace's.
+    pub fn purchase_new_number(mut self, purchase_new_number: bool) -> Self {
+        self.purchase_new_number = purchase_new_number;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct InheritVerificationResponse {
     #[serde(default, alias = "verificationId")]
@@ -1994,6 +2731,10 @@ pub struct InheritVerificationResponse {
     pub toll_free_number: Option<String>,
     #[serde(default, alias = "inheritedFrom")]
     pub inherited_from: Option<String>,
+    /// True when the workspace was given its own new toll-free number
+    /// instead of sharing the source workspace's.
+    #[serde(default, alias = "newNumber")]
+    pub new_number: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2196,6 +2937,49 @@ impl ProvisionWorkspaceRequest {
     }
 }
 
+/// A page provisioning generated for a workspace, or why it could not.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[non_exhaustive]
+pub struct ProvisionedPage {
+    /// The page's ID.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// The page's slug.
+    #[serde(default)]
+    pub slug: Option<String>,
+    /// The hosted page's URL.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Why the page could not be generated; the rest of provisioning still
+    /// went ahead.
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// The privacy policy and terms pages provisioning generated, or why it
+/// could not.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ProvisionedLegalPages {
+    /// The hosted privacy policy's URL.
+    #[serde(default)]
+    pub privacy_url: Option<String>,
+    /// The hosted terms of service's URL.
+    #[serde(default)]
+    pub terms_url: Option<String>,
+    /// The privacy policy page's ID.
+    #[serde(default)]
+    pub privacy_page_id: Option<String>,
+    /// The terms of service page's ID.
+    #[serde(default)]
+    pub terms_page_id: Option<String>,
+    /// Why the pages could not be generated; the rest of provisioning still
+    /// went ahead.
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProvisionWorkspaceResponse {
     #[serde(default)]
@@ -2208,6 +2992,21 @@ pub struct ProvisionWorkspaceResponse {
     pub key: Option<serde_json::Value>,
     #[serde(default)]
     pub webhook: Option<serde_json::Value>,
+    /// The hosted opt-in page, when one was generated or failed to be.
+    #[serde(default, alias = "optInPage")]
+    pub opt_in_page: Option<ProvisionedPage>,
+    /// The hosted privacy policy and terms pages, when generated or failed.
+    #[serde(default, alias = "legalPages")]
+    pub legal_pages: Option<ProvisionedLegalPages>,
+    /// The hosted business page, when one was generated or failed to be.
+    #[serde(default, alias = "businessPage")]
+    pub business_page: Option<ProvisionedPage>,
+    /// The API base URL the new workspace's key works against.
+    #[serde(default, alias = "apiBaseUrl")]
+    pub api_base_url: Option<String>,
+    /// The new workspace in the Sendly dashboard.
+    #[serde(default, alias = "dashboardUrl")]
+    pub dashboard_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2295,6 +3094,20 @@ pub struct SetEnterpriseWebhookRequest {
 pub struct EnterpriseWebhook {
     #[serde(default)]
     pub url: Option<String>,
+    /// The event types the webhook receives; `None` means all of them.
+    #[serde(default)]
+    pub events: Option<Vec<String>>,
+    /// The workspaces whose events the webhook receives; `None` means all of
+    /// them.
+    #[serde(default)]
+    pub workspaces: Option<Vec<String>>,
+    /// The signing secret. Returned only when it is new: by the first
+    /// `set()` and by `rotate_secret()`. Store it; it is not shown again.
+    #[serde(default, alias = "signingSecret", alias = "secret")]
+    pub signing_secret: Option<String>,
+    /// When the secret was rotated, on a rotation.
+    #[serde(default, alias = "rotatedAt")]
+    pub rotated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2305,6 +3118,12 @@ pub struct EnterpriseWebhookTestResult {
     pub message: Option<String>,
     #[serde(default, alias = "statusCode")]
     pub status_code: Option<i32>,
+    /// The HTTP status text the endpoint answered with.
+    #[serde(default, alias = "statusText")]
+    pub status_text: Option<String>,
+    /// Why the test event could not be delivered, when the request failed.
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2359,6 +3178,7 @@ pub struct DeliveryByWorkspace {
     pub rate: f64,
 }
 
+#[deprecated(note = "The credits analytics endpoint reports totals, not a daily series.")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreditDataPoint {
     #[serde(default)]
@@ -2371,12 +3191,29 @@ pub struct CreditDataPoint {
     pub purchased: i64,
 }
 
+/// Credit totals across the enterprise's workspaces.
+#[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreditsAnalytics {
     #[serde(default)]
     pub period: String,
+    #[deprecated(
+        note = "The API reports totals, not a daily series; this is always empty. Read `total_balance`, `total_lifetime`, `total_used` and `workspace_count`."
+    )]
     #[serde(default)]
     pub data: Vec<CreditDataPoint>,
+    /// Credits the workspaces hold now.
+    #[serde(default, alias = "totalBalance")]
+    pub total_balance: i64,
+    /// Credits the workspaces have ever received.
+    #[serde(default, alias = "totalLifetime")]
+    pub total_lifetime: i64,
+    /// Credits the workspaces have used: lifetime minus balance.
+    #[serde(default, alias = "totalUsed")]
+    pub total_used: i64,
+    /// Number of workspaces counted.
+    #[serde(default, alias = "workspaceCount")]
+    pub workspace_count: i64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2569,14 +3406,46 @@ pub struct SetWorkspaceWebhookResponse {
     pub updated: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct WorkspaceWebhookTestResult {
+#[derive(Deserialize)]
+struct WorkspaceWebhookTestResultWire {
     #[serde(default)]
-    pub success: bool,
+    success: bool,
     #[serde(default)]
-    pub message: Option<String>,
+    message: Option<String>,
     #[serde(default, alias = "statusCode")]
+    status_code: Option<i32>,
+    #[serde(default)]
+    delivery: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(from = "WorkspaceWebhookTestResultWire")]
+pub struct WorkspaceWebhookTestResult {
+    pub success: bool,
+    pub message: Option<String>,
+    /// The HTTP status the endpoint answered the test event with.
     pub status_code: Option<i32>,
+    /// The test delivery the API recorded (`id`, `status`, `status_code`,
+    /// `response_time`, `error`, ...).
+    pub delivery: Option<serde_json::Value>,
+}
+
+impl From<WorkspaceWebhookTestResultWire> for WorkspaceWebhookTestResult {
+    fn from(wire: WorkspaceWebhookTestResultWire) -> Self {
+        let status_code = wire.status_code.or_else(|| {
+            wire.delivery
+                .as_ref()
+                .and_then(|d| d.get("status_code"))
+                .and_then(|v| v.as_i64())
+                .and_then(|n| i32::try_from(n).ok())
+        });
+        Self {
+            success: wire.success,
+            message: wire.message,
+            status_code,
+            delivery: wire.delivery,
+        }
+    }
 }
 
 // ==================== Enterprise Suspend/Resume ====================
@@ -3154,10 +4023,12 @@ pub struct UpdateConversationRequest {
     pub tags: Option<Vec<String>>,
 }
 
-/// Request to reply to a conversation.
+/// Request to reply to a conversation. Provide `text`, `media_urls` or
+/// both.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReplyToConversationRequest {
-    /// Message content.
+    /// Message content; may be empty when `media_urls` is set.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub text: String,
     /// Message type for compliance.
     #[serde(skip_serializing_if = "Option::is_none", rename = "messageType")]
@@ -3278,14 +4149,140 @@ pub struct ConversationContextBusiness {
 // Rules
 // ============================================================================
 
+/// A value a rule condition matches: one value, or any of several.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RuleMatch {
+    /// Matches this value.
+    One(String),
+    /// Matches any of these values.
+    Any(Vec<String>),
+}
+
+impl From<&str> for RuleMatch {
+    fn from(value: &str) -> Self {
+        RuleMatch::One(value.to_string())
+    }
+}
+
+impl From<String> for RuleMatch {
+    fn from(value: String) -> Self {
+        RuleMatch::One(value)
+    }
+}
+
+impl<S: Into<String>> From<Vec<S>> for RuleMatch {
+    fn from(values: Vec<S>) -> Self {
+        RuleMatch::Any(values.into_iter().map(Into::into).collect())
+    }
+}
+
+/// What a rule matches in an inbound message's AI classification. Every
+/// condition that is set must hold; a rule with none matches every message.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleConditions {
+    /// The classified intent, such as `complaint`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<RuleMatch>,
+    /// The classified sentiment, such as `negative`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sentiment: Option<RuleMatch>,
+    /// The lowest intent confidence (0-1) the rule accepts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent_confidence_min: Option<f64>,
+    /// The lowest sentiment confidence (0-1) the rule accepts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sentiment_confidence_min: Option<f64>,
+}
+
+impl RuleConditions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn intent(mut self, intent: impl Into<RuleMatch>) -> Self {
+        self.intent = Some(intent.into());
+        self
+    }
+
+    pub fn sentiment(mut self, sentiment: impl Into<RuleMatch>) -> Self {
+        self.sentiment = Some(sentiment.into());
+        self
+    }
+
+    pub fn intent_confidence_min(mut self, min: f64) -> Self {
+        self.intent_confidence_min = Some(min);
+        self
+    }
+
+    pub fn sentiment_confidence_min(mut self, min: f64) -> Self {
+        self.sentiment_confidence_min = Some(min);
+        self
+    }
+}
+
+/// What a rule does to the conversation of a message it matches.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleActions {
+    /// Label IDs to add to the conversation.
+    #[serde(default)]
+    pub add_labels: Vec<String>,
+    /// Whether to close the conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close_conversation: Option<bool>,
+}
+
+impl RuleActions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_labels(mut self, label_ids: Vec<impl Into<String>>) -> Self {
+        self.add_labels = label_ids.into_iter().map(|id| id.into()).collect();
+        self
+    }
+
+    pub fn close_conversation(mut self, close: bool) -> Self {
+        self.close_conversation = Some(close);
+        self
+    }
+}
+
+fn deserialize_rule_part<'de, D, T>(deserializer: D) -> std::result::Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::Array(items) => Ok(items
+            .into_iter()
+            .next()
+            .and_then(|first| serde_json::from_value(first).ok())
+            .unwrap_or_default()),
+        serde_json::Value::Null => Ok(T::default()),
+        object => serde_json::from_value(object).map_err(serde::de::Error::custom),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rule {
     pub id: String,
     pub name: String,
-    pub conditions: Vec<std::collections::HashMap<String, serde_json::Value>>,
-    pub actions: Vec<std::collections::HashMap<String, serde_json::Value>>,
+    /// What the rule matches. A rule stored by an SDK that sent a list reads
+    /// back as its first entry; the API never evaluated such a rule.
+    #[serde(deserialize_with = "deserialize_rule_part")]
+    pub conditions: RuleConditions,
+    /// What the rule does. A rule stored by an SDK that sent a list reads
+    /// back as its first entry; the API never applied such a rule.
+    #[serde(deserialize_with = "deserialize_rule_part")]
+    pub actions: RuleActions,
     #[serde(default)]
     pub priority: i32,
+    /// Whether the rule runs. A new rule is enabled.
+    #[serde(default)]
+    pub enabled: Option<bool>,
     #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
     #[serde(default, alias = "updatedAt")]
@@ -3301,8 +4298,8 @@ pub struct RuleListResponse {
 #[derive(Debug, Clone, Serialize)]
 pub struct CreateRuleRequest {
     pub name: String,
-    pub conditions: Vec<std::collections::HashMap<String, serde_json::Value>>,
-    pub actions: Vec<std::collections::HashMap<String, serde_json::Value>>,
+    pub conditions: RuleConditions,
+    pub actions: RuleActions,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i32>,
 }
@@ -3312,11 +4309,14 @@ pub struct UpdateRuleRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub conditions: Option<Vec<std::collections::HashMap<String, serde_json::Value>>>,
+    pub conditions: Option<RuleConditions>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub actions: Option<Vec<std::collections::HashMap<String, serde_json::Value>>>,
+    pub actions: Option<RuleActions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i32>,
+    /// `false` switches the rule off; `true` switches it back on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }
 
 // ============================================================================
@@ -3592,10 +4592,7 @@ impl WhatsAppTemplateSendParams {
     }
 
     /// Sets the body variable values.
-    pub fn with_variables(
-        mut self,
-        variables: std::collections::HashMap<String, String>,
-    ) -> Self {
+    pub fn with_variables(mut self, variables: std::collections::HashMap<String, String>) -> Self {
         self.variables = Some(variables);
         self
     }
@@ -3616,8 +4613,9 @@ impl WhatsAppTemplateSendParams {
 ///   caption); also window-bound
 /// - `template` — an approved template; works regardless of the window
 ///
-/// WhatsApp sends require a live API key and a `from` number that has been
-/// connected to WhatsApp (see `client.whatsapp().signup()`).
+/// WhatsApp sends require the `sms:send` scope, a live API key and a `from`
+/// number that has been connected to WhatsApp (see
+/// `client.whatsapp().signup()`).
 ///
 /// Construct with [`SendWhatsAppMessageRequest::new`] and the `with_*`
 /// builder methods. This type is `#[non_exhaustive]`, so external crates
@@ -3696,6 +4694,7 @@ impl SendWhatsAppMessageRequest {
 /// What kind of WhatsApp message was sent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum WhatsAppMessageKind {
     /// Free-form text.
     Text,
@@ -3703,6 +4702,9 @@ pub enum WhatsAppMessageKind {
     Media,
     /// Approved template.
     Template,
+    /// A kind this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Billing category of a sent WhatsApp template (Meta reviews and may
@@ -3710,10 +4712,14 @@ pub enum WhatsAppMessageKind {
 /// billed).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum WhatsAppMessageCategory {
     Marketing,
     Utility,
     Authentication,
+    /// A category this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
 }
 
 /// The template that was sent (template sends only).
@@ -3765,8 +4771,14 @@ pub struct WhatsAppMessage {
     /// Always 1 — WhatsApp has no segment concept.
     #[serde(default = "default_segments")]
     pub segments: i32,
-    /// Credits charged for this message (priced by destination country and
-    /// category).
+    /// Credits charged for this message. Free-form text or media inside the
+    /// 24-hour window: 1 credit each for the first 1,000 per sending number
+    /// per calendar month (UTC), then the destination's utility template
+    /// price; countries without a listed price use the default utility price
+    /// of 12 credits. Templates are priced by category and destination
+    /// country; countries without a listed price use 33 (marketing), 12
+    /// (utility) and 12 (authentication) credits. A failed send gives its
+    /// slot back.
     #[serde(default, alias = "creditsUsed")]
     pub credits_used: i32,
     /// WhatsApp-specific details.

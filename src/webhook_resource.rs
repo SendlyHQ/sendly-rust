@@ -1,6 +1,6 @@
 //! Webhooks resource for managing webhook endpoints.
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::Result;
 use crate::models::{
     CreateWebhookRequest, ListDeliveriesOptions, UpdateWebhookRequest, Webhook,
@@ -61,6 +61,13 @@ struct WebhookListResponse {
     webhooks: Option<Vec<Webhook>>,
     #[serde(default)]
     data: Option<Vec<Webhook>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum WebhookListWire {
+    Bare(Vec<Webhook>),
+    Wrapped(WebhookListResponse),
 }
 
 #[derive(Debug, Deserialize)]
@@ -145,9 +152,14 @@ impl<'a> WebhooksResource<'a> {
     /// ```
     pub async fn list(&self) -> Result<Vec<Webhook>> {
         let response = self.client.get("/webhooks", &[]).await?;
-        let result: WebhookListResponse = response.json().await?;
+        let result: WebhookListWire = response.json().await?;
 
-        Ok(result.webhooks.or(result.data).unwrap_or_default())
+        Ok(match result {
+            WebhookListWire::Bare(webhooks) => webhooks,
+            WebhookListWire::Wrapped(wrapped) => {
+                wrapped.webhooks.or(wrapped.data).unwrap_or_default()
+            }
+        })
     }
 
     /// Gets a webhook by ID.
@@ -156,7 +168,7 @@ impl<'a> WebhooksResource<'a> {
     ///
     /// * `id` - Webhook ID
     pub async fn get(&self, id: impl AsRef<str>) -> Result<Webhook> {
-        let path = format!("/webhooks/{}", id.as_ref());
+        let path = format!("/webhooks/{}", path_id(id.as_ref())?);
         let response = self.client.get(&path, &[]).await?;
         let result: WebhookResponse = response.json().await?;
 
@@ -193,7 +205,7 @@ impl<'a> WebhooksResource<'a> {
         id: impl AsRef<str>,
         request: UpdateWebhookRequest,
     ) -> Result<Webhook> {
-        let path = format!("/webhooks/{}", id.as_ref());
+        let path = format!("/webhooks/{}", path_id(id.as_ref())?);
         let response = self.client.patch(&path, &request).await?;
         let result: WebhookResponse = response.json().await?;
 
@@ -225,19 +237,24 @@ impl<'a> WebhooksResource<'a> {
     ///
     /// * `id` - Webhook ID
     pub async fn delete(&self, id: impl AsRef<str>) -> Result<()> {
-        let path = format!("/webhooks/{}", id.as_ref());
+        let path = format!("/webhooks/{}", path_id(id.as_ref())?);
         self.client.delete(&path).await?;
         Ok(())
     }
 
-    /// Tests a webhook endpoint.
+    /// Tests a webhook endpoint by sending it a `webhook.test` event.
+    ///
+    /// Returns the result when the endpoint accepted the event. When it did
+    /// not, the API answers 400 and this returns
+    /// [`Error::Validation`](crate::Error::Validation), whose message says
+    /// why.
     ///
     /// # Arguments
     ///
     /// * `id` - Webhook ID
     pub async fn test(&self, id: impl AsRef<str>) -> Result<WebhookTestResult> {
-        let path = format!("/webhooks/{}/test", id.as_ref());
-        let response = self.client.post(&path, &()).await?;
+        let path = format!("/webhooks/{}/test", path_id(id.as_ref())?);
+        let response = self.client.post_empty(&path).await?;
         let result: WebhookTestResult = response.json().await?;
         Ok(result)
     }
@@ -248,8 +265,8 @@ impl<'a> WebhooksResource<'a> {
     ///
     /// * `id` - Webhook ID
     pub async fn reset_circuit(&self, id: impl AsRef<str>) -> Result<serde_json::Value> {
-        let path = format!("/webhooks/{}/reset-circuit", id.as_ref());
-        let response = self.client.post(&path, &()).await?;
+        let path = format!("/webhooks/{}/reset-circuit", path_id(id.as_ref())?);
+        let response = self.client.post_empty(&path).await?;
         let result: serde_json::Value = response.json().await?;
         Ok(result)
     }
@@ -273,7 +290,7 @@ impl<'a> WebhooksResource<'a> {
         id: impl AsRef<str>,
         options: RedeliverOptions,
     ) -> Result<serde_json::Value> {
-        let path = format!("/webhooks/{}/redeliver", id.as_ref());
+        let path = format!("/webhooks/{}/redeliver", path_id(id.as_ref())?);
         let response = self.client.post(&path, &options).await?;
         let result: serde_json::Value = response.json().await?;
         Ok(result)
@@ -283,8 +300,9 @@ impl<'a> WebhooksResource<'a> {
     ///
     /// Use when a circuit-breaker outage left events with no audit row (the
     /// case [`redeliver`](Self::redeliver) cannot recover). Synthesized
-    /// events have fresh IDs; clients should dedupe by
-    /// `event.data.object.id` (the message ID). Rejects with HTTP 409 if
+    /// message events carry the same event id the original dispatch used,
+    /// so dedupe on `event.id`. Do not dedupe on `data.object.id`: a
+    /// message's sent and delivered events share it. Rejects with HTTP 409 if
     /// the circuit is currently open — call
     /// [`reset_circuit`](Self::reset_circuit) first.
     ///
@@ -299,7 +317,7 @@ impl<'a> WebhooksResource<'a> {
         id: impl AsRef<str>,
         options: BackfillOptions,
     ) -> Result<serde_json::Value> {
-        let path = format!("/webhooks/{}/backfill", id.as_ref());
+        let path = format!("/webhooks/{}/backfill", path_id(id.as_ref())?);
         let response = self.client.post(&path, &options).await?;
         let result: serde_json::Value = response.json().await?;
         Ok(result)
@@ -311,8 +329,8 @@ impl<'a> WebhooksResource<'a> {
     ///
     /// * `id` - Webhook ID
     pub async fn rotate_secret(&self, id: impl AsRef<str>) -> Result<WebhookSecretRotation> {
-        let path = format!("/webhooks/{}/rotate-secret", id.as_ref());
-        let response = self.client.post(&path, &()).await?;
+        let path = format!("/webhooks/{}/rotate-secret", path_id(id.as_ref())?);
+        let response = self.client.post_empty(&path).await?;
         let result: WebhookSecretRotation = response.json().await?;
         Ok(result)
     }
@@ -328,7 +346,7 @@ impl<'a> WebhooksResource<'a> {
         id: impl AsRef<str>,
         options: Option<ListDeliveriesOptions>,
     ) -> Result<WebhookDeliveryList> {
-        let path = format!("/webhooks/{}/deliveries", id.as_ref());
+        let path = format!("/webhooks/{}/deliveries", path_id(id.as_ref())?);
         let query = options.unwrap_or_default().to_query_params();
         let response = self.client.get(&path, &query).await?;
         let result: WebhookDeliveryList = response.json().await?;
@@ -348,8 +366,8 @@ impl<'a> WebhooksResource<'a> {
     ) -> Result<WebhookDelivery> {
         let path = format!(
             "/webhooks/{}/deliveries/{}",
-            webhook_id.as_ref(),
-            delivery_id.as_ref()
+            path_id(webhook_id.as_ref())?,
+            path_id(delivery_id.as_ref())?
         );
         let response = self.client.get(&path, &[]).await?;
         let result: DeliveryResponse = response.json().await?;
@@ -383,10 +401,10 @@ impl<'a> WebhooksResource<'a> {
     ) -> Result<WebhookDelivery> {
         let path = format!(
             "/webhooks/{}/deliveries/{}/retry",
-            webhook_id.as_ref(),
-            delivery_id.as_ref()
+            path_id(webhook_id.as_ref())?,
+            path_id(delivery_id.as_ref())?
         );
-        let response = self.client.post(&path, &()).await?;
+        let response = self.client.post_empty(&path).await?;
         let result: DeliveryResponse = response.json().await?;
 
         Ok(result

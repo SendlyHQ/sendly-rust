@@ -1,4 +1,4 @@
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 use crate::models::{CreateLabelRequest, Label, LabelListResponse};
 
@@ -16,9 +16,7 @@ impl<'a> LabelsResource<'a> {
     /// Creates a new label.
     pub async fn create(&self, request: CreateLabelRequest) -> Result<Label> {
         if request.name.is_empty() {
-            return Err(Error::Validation {
-                message: "Label name is required".to_string(),
-            });
+            return Err(Error::validation("Label name is required"));
         }
 
         let response = self.client.post("/labels", &request).await?;
@@ -38,12 +36,10 @@ impl<'a> LabelsResource<'a> {
     /// Deletes a label by ID.
     pub async fn delete(&self, id: &str) -> Result<()> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Label ID is required".to_string(),
-            });
+            return Err(Error::validation("Label ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/labels/{}", encoded_id);
         self.client.delete(&path).await?;
 

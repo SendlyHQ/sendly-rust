@@ -237,7 +237,7 @@ async fn test_registration_get_not_enabled() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::NotFound { message } => assert_eq!(message, NOT_ENABLED_MESSAGE),
+        Error::NotFound { message, .. } => assert_eq!(message, NOT_ENABLED_MESSAGE),
         other => panic!("Expected NotFound error, got {:?}", other),
     }
 }
@@ -443,7 +443,7 @@ async fn test_brands_create_us_only() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("US businesses")),
+        Error::Validation { message, .. } => assert!(message.contains("US businesses")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }
@@ -466,7 +466,7 @@ async fn test_brands_create_not_enabled() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::NotFound { message } => assert_eq!(message, NOT_ENABLED_MESSAGE),
+        Error::NotFound { message, .. } => assert_eq!(message, NOT_ENABLED_MESSAGE),
         other => panic!("Expected NotFound error, got {:?}", other),
     }
 }
@@ -560,6 +560,7 @@ async fn test_brands_update_field_locked() {
             status_code,
             code,
             message,
+            ..
         } => {
             assert_eq!(status_code, 409);
             assert_eq!(code.as_deref(), Some("rcs_field_locked"));
@@ -717,7 +718,7 @@ async fn test_agents_create_rejects_non_https_media() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("public https:// URLs")),
+        Error::Validation { message, .. } => assert!(message.contains("public https:// URLs")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }
@@ -830,7 +831,7 @@ async fn test_agents_get_not_found() {
     let result = client.rcs().agents().get("rcs_agent_missing").await;
 
     match result.unwrap_err() {
-        Error::NotFound { message } => assert_eq!(message, "Agent not found"),
+        Error::NotFound { message, .. } => assert_eq!(message, "Agent not found"),
         other => panic!("Expected NotFound error, got {:?}", other),
     }
 }
@@ -848,7 +849,7 @@ async fn test_agents_get_not_enabled() {
     let result = client.rcs().agents().get("rcs_agent_abc123").await;
 
     match result.unwrap_err() {
-        Error::NotFound { message } => assert_eq!(message, NOT_ENABLED_MESSAGE),
+        Error::NotFound { message, .. } => assert_eq!(message, NOT_ENABLED_MESSAGE),
         other => panic!("Expected NotFound error, got {:?}", other),
     }
 }
@@ -1204,7 +1205,7 @@ async fn test_agents_submit_incomplete() {
     let result = client.rcs().agents().submit("rcs_agent_abc123").await;
 
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("before submitting")),
+        Error::Validation { message, .. } => assert!(message.contains("before submitting")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }
@@ -1248,7 +1249,7 @@ async fn test_agents_submit_not_enabled() {
     let result = client.rcs().agents().submit("rcs_agent_abc123").await;
 
     match result.unwrap_err() {
-        Error::NotFound { message } => assert_eq!(message, NOT_ENABLED_MESSAGE),
+        Error::NotFound { message, .. } => assert_eq!(message, NOT_ENABLED_MESSAGE),
         other => panic!("Expected NotFound error, got {:?}", other),
     }
 }
@@ -1347,6 +1348,7 @@ async fn test_agents_request_launch_not_ready() {
             status_code,
             code,
             message,
+            ..
         } => {
             assert_eq!(status_code, 409);
             assert_eq!(code.as_deref(), Some("rcs_launch_not_ready"));

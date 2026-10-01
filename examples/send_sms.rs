@@ -13,7 +13,7 @@ async fn main() {
     match client
         .messages()
         .send(SendMessageRequest::new(
-            "+15551234567",
+            "+15125550123",
             "Hello from Sendly Rust SDK!",
         ))
         .await
@@ -24,6 +24,9 @@ async fn main() {
             println!("  To: {}", message.to);
             println!("  Status: {}", message.status);
             println!("  Credits used: {}", message.credits_used);
+            if message.simulated {
+                println!("  Simulated: {:?}", message.simulated_reason);
+            }
         }
         Err(e) => {
             handle_error(e);
@@ -33,25 +36,31 @@ async fn main() {
 
 fn handle_error(error: Error) {
     match error {
-        Error::Authentication { message } => {
+        Error::Authentication { message, .. } => {
             eprintln!("Authentication failed: {}", message);
         }
-        Error::InsufficientCredits { message } => {
+        Error::InsufficientCredits { message, .. } => {
             eprintln!("Insufficient credits: {}", message);
+        }
+        Error::RateLimit { ref code, .. }
+            if code.as_deref() == Some("too_many_failed_key_attempts") =>
+        {
+            eprintln!("Too many requests with a wrong API key; fix SENDLY_API_KEY instead of retrying");
         }
         Error::RateLimit {
             message,
             retry_after,
+            ..
         } => {
             eprintln!("Rate limited: {}", message);
             if let Some(seconds) = retry_after {
                 eprintln!("Retry after: {} seconds", seconds);
             }
         }
-        Error::Validation { message } => {
-            eprintln!("Validation error: {}", message);
+        Error::Validation { message, code, .. } => {
+            eprintln!("Validation error ({:?}): {}", code, message);
         }
-        Error::NotFound { message } => {
+        Error::NotFound { message, .. } => {
             eprintln!("Not found: {}", message);
         }
         Error::Network { message } => {

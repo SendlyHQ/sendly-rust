@@ -225,7 +225,7 @@ async fn test_send_rcs_card_not_supported_for_recipient() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("no SMS form")),
+        Error::Validation { message, .. } => assert!(message.contains("no SMS form")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }
@@ -313,7 +313,7 @@ async fn test_send_rcs_fallback_disabled() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("doesn't support RCS")),
+        Error::Validation { message, .. } => assert!(message.contains("doesn't support RCS")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }
@@ -330,7 +330,7 @@ async fn test_send_rcs_requires_text_or_card() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("exactly one")),
+        Error::Validation { message, .. } => assert!(message.contains("exactly one")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }
@@ -349,7 +349,7 @@ async fn test_send_rcs_rejects_text_and_card_together() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("exactly one")),
+        Error::Validation { message, .. } => assert!(message.contains("exactly one")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }
@@ -368,7 +368,7 @@ async fn test_send_rcs_rejects_suggestions_on_a_card() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("ride on text messages")),
+        Error::Validation { message, .. } => assert!(message.contains("ride on text messages")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }
@@ -442,7 +442,7 @@ async fn test_send_rcs_not_enabled() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::NotFound { message } => assert!(message.contains("not enabled")),
+        Error::NotFound { message, .. } => assert!(message.contains("not enabled")),
         other => panic!("Expected NotFound error, got {:?}", other),
     }
 }
@@ -469,7 +469,9 @@ async fn test_send_rcs_insufficient_credits() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::InsufficientCredits { message } => assert!(message.contains("Insufficient credits")),
+        Error::InsufficientCredits { message, .. } => {
+            assert!(message.contains("Insufficient credits"))
+        }
         other => panic!("Expected InsufficientCredits error, got {:?}", other),
     }
 }

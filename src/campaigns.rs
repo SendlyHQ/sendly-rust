@@ -1,54 +1,181 @@
 use serde::{Deserialize, Serialize};
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::Result;
+use crate::models::BatchMessageResponse;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum CampaignStatus {
     Draft,
     Scheduled,
     Sending,
+    /// The campaign finished sending.
+    Completed,
+    #[deprecated(
+        note = "The API never gives a campaign this status; a sent campaign is `Completed`."
+    )]
     Sent,
+    #[deprecated(note = "The API never gives a campaign this status.")]
     Paused,
     Cancelled,
     Failed,
 }
 
+impl std::fmt::Display for CampaignStatus {
+    #[allow(deprecated)]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CampaignStatus::Draft => write!(f, "draft"),
+            CampaignStatus::Scheduled => write!(f, "scheduled"),
+            CampaignStatus::Sending => write!(f, "sending"),
+            CampaignStatus::Completed => write!(f, "completed"),
+            CampaignStatus::Sent => write!(f, "sent"),
+            CampaignStatus::Paused => write!(f, "paused"),
+            CampaignStatus::Cancelled => write!(f, "cancelled"),
+            CampaignStatus::Failed => write!(f, "failed"),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct CampaignWire {
+    id: String,
+    name: String,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default, rename = "messageText")]
+    message_text: Option<String>,
+    #[serde(default)]
+    template_id: Option<String>,
+    #[serde(default, rename = "templateId")]
+    template_id_camel: Option<String>,
+    #[serde(default)]
+    contact_list_ids: Option<Vec<String>>,
+    #[serde(default, rename = "contactListIds")]
+    contact_list_ids_camel: Option<Vec<String>>,
+    #[serde(default, rename = "targetListId")]
+    target_list_id: Option<String>,
+    status: String,
+    #[serde(default)]
+    recipient_count: Option<i32>,
+    #[serde(default, rename = "recipientCount")]
+    recipient_count_camel: Option<i32>,
+    #[serde(default, rename = "totalRecipients")]
+    total_recipients: Option<i32>,
+    #[serde(default)]
+    sent_count: Option<i32>,
+    #[serde(default, rename = "sentCount")]
+    sent_count_camel: Option<i32>,
+    #[serde(default)]
+    delivered_count: Option<i32>,
+    #[serde(default, rename = "deliveredCount")]
+    delivered_count_camel: Option<i32>,
+    #[serde(default)]
+    failed_count: Option<i32>,
+    #[serde(default, rename = "failedCount")]
+    failed_count_camel: Option<i32>,
+    #[serde(default)]
+    estimated_credits: Option<f64>,
+    #[serde(default, rename = "estimatedCredits")]
+    estimated_credits_camel: Option<f64>,
+    #[serde(default)]
+    credits_used: Option<f64>,
+    #[serde(default, rename = "creditsUsed")]
+    credits_used_camel: Option<f64>,
+    #[serde(default)]
+    scheduled_at: Option<String>,
+    #[serde(default, rename = "scheduledAt")]
+    scheduled_at_camel: Option<String>,
+    #[serde(default)]
+    timezone: Option<String>,
+    #[serde(default)]
+    started_at: Option<String>,
+    #[serde(default, rename = "startedAt")]
+    started_at_camel: Option<String>,
+    #[serde(default, rename = "sentAt")]
+    sent_at: Option<String>,
+    #[serde(default)]
+    completed_at: Option<String>,
+    #[serde(default, rename = "completedAt")]
+    completed_at_camel: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default, rename = "createdAt")]
+    created_at_camel: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
+    #[serde(default, rename = "updatedAt")]
+    updated_at_camel: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "CampaignWire")]
 pub struct Campaign {
     pub id: String,
     pub name: String,
     pub text: String,
-    #[serde(default, alias = "templateId")]
     pub template_id: Option<String>,
-    #[serde(default, alias = "contactListIds")]
+    /// The contact list the campaign targets; a campaign targets one list.
     pub contact_list_ids: Vec<String>,
     pub status: String,
-    #[serde(default, alias = "recipientCount")]
+    /// Recipients the campaign targets.
     pub recipient_count: i32,
-    #[serde(default, alias = "sentCount")]
     pub sent_count: i32,
-    #[serde(default, alias = "deliveredCount")]
     pub delivered_count: i32,
-    #[serde(default, alias = "failedCount")]
     pub failed_count: i32,
-    #[serde(default, alias = "estimatedCredits")]
     pub estimated_credits: Option<f64>,
-    #[serde(default, alias = "creditsUsed")]
     pub credits_used: Option<f64>,
-    #[serde(default, alias = "scheduledAt")]
     pub scheduled_at: Option<String>,
-    #[serde(default)]
     pub timezone: Option<String>,
-    #[serde(default, alias = "startedAt")]
+    /// When the campaign started sending.
     pub started_at: Option<String>,
-    #[serde(default, alias = "completedAt")]
     pub completed_at: Option<String>,
-    #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
-    #[serde(default, alias = "updatedAt")]
     pub updated_at: Option<String>,
+}
+
+impl From<CampaignWire> for Campaign {
+    fn from(wire: CampaignWire) -> Self {
+        Self {
+            id: wire.id,
+            name: wire.name,
+            text: wire.text.or(wire.message_text).unwrap_or_default(),
+            template_id: wire.template_id.or(wire.template_id_camel),
+            contact_list_ids: wire
+                .contact_list_ids
+                .or(wire.contact_list_ids_camel)
+                .or_else(|| wire.target_list_id.map(|id| vec![id]))
+                .unwrap_or_default(),
+            status: wire.status,
+            recipient_count: wire
+                .recipient_count
+                .or(wire.recipient_count_camel)
+                .or(wire.total_recipients)
+                .unwrap_or_default(),
+            sent_count: wire
+                .sent_count
+                .or(wire.sent_count_camel)
+                .unwrap_or_default(),
+            delivered_count: wire
+                .delivered_count
+                .or(wire.delivered_count_camel)
+                .unwrap_or_default(),
+            failed_count: wire
+                .failed_count
+                .or(wire.failed_count_camel)
+                .unwrap_or_default(),
+            estimated_credits: wire.estimated_credits.or(wire.estimated_credits_camel),
+            credits_used: wire.credits_used.or(wire.credits_used_camel),
+            scheduled_at: wire.scheduled_at.or(wire.scheduled_at_camel),
+            timezone: wire.timezone,
+            started_at: wire.started_at.or(wire.started_at_camel).or(wire.sent_at),
+            completed_at: wire.completed_at.or(wire.completed_at_camel),
+            created_at: wire.created_at.or(wire.created_at_camel),
+            updated_at: wire.updated_at.or(wire.updated_at_camel),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -182,16 +309,7 @@ impl ListCampaignsOptions {
             params.push(("offset".to_string(), offset.to_string()));
         }
         if let Some(ref status) = self.status {
-            let status_str = match status {
-                CampaignStatus::Draft => "draft",
-                CampaignStatus::Scheduled => "scheduled",
-                CampaignStatus::Sending => "sending",
-                CampaignStatus::Sent => "sent",
-                CampaignStatus::Paused => "paused",
-                CampaignStatus::Cancelled => "cancelled",
-                CampaignStatus::Failed => "failed",
-            };
-            params.push(("status".to_string(), status_str.to_string()));
+            params.push(("status".to_string(), status.to_string()));
         }
         params
     }
@@ -199,7 +317,7 @@ impl ListCampaignsOptions {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ScheduleCampaignRequest {
-    #[serde(rename = "scheduled_at")]
+    #[serde(rename = "scheduledAt")]
     pub scheduled_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
@@ -235,7 +353,10 @@ impl<'a> CampaignsResource<'a> {
     }
 
     pub async fn get(&self, id: &str) -> Result<Campaign> {
-        let response = self.client.get(&format!("/campaigns/{}", urlencoding::encode(id)), &[]).await?;
+        let response = self
+            .client
+            .get(&format!("/campaigns/{}", path_id(id)?), &[])
+            .await?;
         Ok(response.json().await?)
     }
 
@@ -247,28 +368,55 @@ impl<'a> CampaignsResource<'a> {
     pub async fn update(&self, id: &str, request: UpdateCampaignRequest) -> Result<Campaign> {
         let response = self
             .client
-            .patch(&format!("/campaigns/{}", urlencoding::encode(id)), &request)
+            .patch(&format!("/campaigns/{}", path_id(id)?), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
-        self.client.delete(&format!("/campaigns/{}", urlencoding::encode(id))).await?;
+        self.client
+            .delete(&format!("/campaigns/{}", path_id(id)?))
+            .await?;
         Ok(())
     }
 
     pub async fn preview(&self, id: &str) -> Result<CampaignPreview> {
         let response = self
             .client
-            .get(&format!("/campaigns/{}/preview", urlencoding::encode(id)), &[])
+            .get(&format!("/campaigns/{}/preview", path_id(id)?), &[])
             .await?;
         Ok(response.json().await?)
     }
 
-    pub async fn send(&self, id: &str) -> Result<Campaign> {
+    /// Sends a draft or scheduled campaign now, from the workspace's default
+    /// sender, and returns the batch it created. Follow the batch with
+    /// [`Messages::get_batch`](crate::Messages::get_batch).
+    pub async fn send(&self, id: &str) -> Result<BatchMessageResponse> {
         let response = self
             .client
-            .post(&format!("/campaigns/{}/send", urlencoding::encode(id)), &())
+            .post_empty(&format!("/campaigns/{}/send", path_id(id)?))
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    /// Sends a campaign now from `from`, a number of yours, and returns the
+    /// batch it created. A number the workspace cannot send from answers 400
+    /// `invalid_from_number`.
+    pub async fn send_from(
+        &self,
+        id: &str,
+        from: impl Into<String>,
+    ) -> Result<BatchMessageResponse> {
+        #[derive(Serialize)]
+        struct SendCampaignRequest {
+            from: String,
+        }
+        let response = self
+            .client
+            .post(
+                &format!("/campaigns/{}/send", path_id(id)?),
+                &SendCampaignRequest { from: from.into() },
+            )
             .await?;
         Ok(response.json().await?)
     }
@@ -276,7 +424,7 @@ impl<'a> CampaignsResource<'a> {
     pub async fn schedule(&self, id: &str, request: ScheduleCampaignRequest) -> Result<Campaign> {
         let response = self
             .client
-            .post(&format!("/campaigns/{}/schedule", urlencoding::encode(id)), &request)
+            .post(&format!("/campaigns/{}/schedule", path_id(id)?), &request)
             .await?;
         Ok(response.json().await?)
     }
@@ -284,7 +432,7 @@ impl<'a> CampaignsResource<'a> {
     pub async fn cancel(&self, id: &str) -> Result<Campaign> {
         let response = self
             .client
-            .post(&format!("/campaigns/{}/cancel", urlencoding::encode(id)), &())
+            .post_empty(&format!("/campaigns/{}/cancel", path_id(id)?))
             .await?;
         Ok(response.json().await?)
     }
@@ -292,7 +440,7 @@ impl<'a> CampaignsResource<'a> {
     pub async fn clone(&self, id: &str) -> Result<Campaign> {
         let response = self
             .client
-            .post(&format!("/campaigns/{}/clone", urlencoding::encode(id)), &())
+            .post_empty(&format!("/campaigns/{}/clone", path_id(id)?))
             .await?;
         Ok(response.json().await?)
     }

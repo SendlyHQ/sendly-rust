@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,7 +130,9 @@ pub struct Template {
     )]
     #[serde(skip)]
     pub locale: Option<String>,
-    #[deprecated(note = "Use `variable_specs`, which also carries each variable's type and fallback; this field holds the keys only.")]
+    #[deprecated(
+        note = "Use `variable_specs`, which also carries each variable's type and fallback; this field holds the keys only."
+    )]
     #[serde(skip)]
     pub variables: Vec<String>,
     #[deprecated(
@@ -375,7 +377,10 @@ impl<'a> TemplatesResource<'a> {
     }
 
     pub async fn get(&self, id: &str) -> Result<Template> {
-        let response = self.client.get(&format!("/templates/{}", urlencoding::encode(id)), &[]).await?;
+        let response = self
+            .client
+            .get(&format!("/templates/{}", path_id(id)?), &[])
+            .await?;
         Ok(response.json().await?)
     }
 
@@ -387,13 +392,16 @@ impl<'a> TemplatesResource<'a> {
     pub async fn update(&self, id: &str, request: UpdateTemplateRequest) -> Result<Template> {
         let response = self
             .client
-            .patch(&format!("/templates/{}", urlencoding::encode(id)), &request)
+            .patch(&format!("/templates/{}", path_id(id)?), &request)
             .await?;
         Ok(response.json().await?)
     }
 
     pub async fn delete(&self, id: &str) -> Result<DeleteTemplateResponse> {
-        let response = self.client.delete(&format!("/templates/{}", urlencoding::encode(id))).await?;
+        let response = self
+            .client
+            .delete(&format!("/templates/{}", path_id(id)?))
+            .await?;
         let body = response.text().await?;
         if body.trim().is_empty() {
             return Ok(DeleteTemplateResponse {
@@ -407,7 +415,10 @@ impl<'a> TemplatesResource<'a> {
     pub async fn publish(&self, id: &str) -> Result<Template> {
         let response = self
             .client
-            .post(&format!("/templates/{}/publish", urlencoding::encode(id)), &serde_json::json!({}))
+            .post(
+                &format!("/templates/{}/publish", path_id(id)?),
+                &serde_json::json!({}),
+            )
             .await?;
         Ok(response.json().await?)
     }
@@ -418,7 +429,7 @@ impl<'a> TemplatesResource<'a> {
     pub async fn unpublish(&self, id: &str) -> Result<Template> {
         let response = self
             .client
-            .post(&format!("/verify/templates/{}/unpublish", urlencoding::encode(id)), &())
+            .post_empty(&format!("/verify/templates/{}/unpublish", path_id(id)?))
             .await?;
         Ok(response.json().await?)
     }
@@ -426,7 +437,7 @@ impl<'a> TemplatesResource<'a> {
     pub async fn clone(&self, id: &str) -> Result<Template> {
         let response = self
             .client
-            .post(&format!("/templates/{}/clone", urlencoding::encode(id)), &())
+            .post_empty(&format!("/templates/{}/clone", path_id(id)?))
             .await?;
         Ok(response.json().await?)
     }
@@ -439,7 +450,7 @@ impl<'a> TemplatesResource<'a> {
         let request = CloneRequest { name: name.into() };
         let response = self
             .client
-            .post(&format!("/templates/{}/clone", urlencoding::encode(id)), &request)
+            .post(&format!("/templates/{}/clone", path_id(id)?), &request)
             .await?;
         Ok(response.json().await?)
     }
@@ -449,9 +460,7 @@ impl<'a> TemplatesResource<'a> {
         request: crate::models::GenerateTemplateRequest,
     ) -> Result<crate::models::GeneratedTemplate> {
         if request.description.is_empty() {
-            return Err(Error::Validation {
-                message: "Description is required".to_string(),
-            });
+            return Err(Error::validation("Description is required"));
         }
 
         let response = self.client.post("/templates/generate", &request).await?;

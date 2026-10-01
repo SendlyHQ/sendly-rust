@@ -213,7 +213,7 @@ async fn test_send_whatsapp_invalid_to_phone() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Invalid phone number format"));
         }
         _ => panic!("Expected Validation error"),
@@ -227,14 +227,12 @@ async fn test_send_whatsapp_invalid_from_phone() {
 
     let result = client
         .messages()
-        .send_whatsapp(
-            SendWhatsAppMessageRequest::new("+15551234567", "SENDLY").with_text("Hello"),
-        )
+        .send_whatsapp(SendWhatsAppMessageRequest::new("+15551234567", "SENDLY").with_text("Hello"))
         .await;
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Invalid phone number format"));
         }
         _ => panic!("Expected Validation error"),
@@ -256,7 +254,7 @@ async fn test_send_whatsapp_missing_content() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("Provide 'text', 'media_urls', or 'template'"));
         }
         _ => panic!("Expected Validation error"),
@@ -288,7 +286,7 @@ async fn test_send_whatsapp_window_closed() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("24-hour window"));
         }
         _ => panic!("Expected Validation error"),
@@ -317,9 +315,59 @@ async fn test_send_whatsapp_sender_not_connected() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("not connected to WhatsApp"));
         }
         _ => panic!("Expected Validation error"),
     }
+}
+
+#[tokio::test]
+async fn test_send_whatsapp_with_a_new_kind_or_category_still_decodes() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": "msg_wa_790",
+            "channel": "whatsapp",
+            "message_format": "whatsapp",
+            "messageFormat": "whatsapp",
+            "to": "+15551234567",
+            "from": "+15559876543",
+            "text": null,
+            "status": "queued",
+            "direction": "outbound",
+            "segments": 1,
+            "creditsUsed": 4,
+            "whatsapp": {
+                "kind": "interactive",
+                "template": {
+                    "name": "order_shipped",
+                    "language": "en_US",
+                    "category": "service"
+                },
+                "messageId": null
+            },
+            "createdAt": "2026-07-30T10:00:00Z",
+            "metadata": {}
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let message = client
+        .messages()
+        .send_whatsapp(
+            SendWhatsAppMessageRequest::new("+15551234567", "+15559876543")
+                .with_template(WhatsAppTemplateSendParams::new("order_shipped", "en_US")),
+        )
+        .await
+        .expect("a charged send should decode whatever kind or category it reports");
+
+    assert_eq!(message.id, "msg_wa_790");
+    assert_eq!(message.credits_used, 4);
+    assert_eq!(message.whatsapp.kind, WhatsAppMessageKind::Unknown);
+    let template = message.whatsapp.template.unwrap();
+    assert_eq!(template.name, "order_shipped");
+    assert_eq!(template.category, WhatsAppMessageCategory::Unknown);
 }

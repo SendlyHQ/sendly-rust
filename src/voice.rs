@@ -24,7 +24,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 use crate::models::IdempotentRequestOptions;
 
@@ -756,12 +756,7 @@ impl<'a> VoiceNumbersResource<'a> {
         let path = format!("/voice/numbers/{}", encode_number(number)?);
         let response = self
             .client
-            .patch_with_idempotency(
-                &path,
-                &request,
-                options.idempotency_key.as_deref(),
-                true,
-            )
+            .patch_with_idempotency(&path, &request, options.idempotency_key.as_deref(), true)
             .await?;
         Ok(response.json().await?)
     }
@@ -775,7 +770,7 @@ impl<'a> VoiceNumbersResource<'a> {
     /// again replaces the address without adding the charge a second time.
     /// A malformed field answers 400 `invalid_address` and an address that
     /// couldn't be validated 422 `invalid_address` (both
-    /// [`Error::Validation`], which carries the message only); a number
+    /// [`Error::Validation`] with that [`code`](Error::code)); a number
     /// outside the US and Canada answers 400 `e911_not_applicable`.
     ///
     /// # Arguments
@@ -836,20 +831,13 @@ impl<'a> VoiceNumbersResource<'a> {
             ("zip", &request.zip),
         ] {
             if value.trim().is_empty() {
-                return Err(Error::Validation {
-                    message: format!("{} is required", field),
-                });
+                return Err(Error::validation(format!("{} is required", field)));
             }
         }
 
         let response = self
             .client
-            .post_with_idempotency(
-                &path,
-                &request,
-                options.idempotency_key.as_deref(),
-                true,
-            )
+            .post_with_idempotency(&path, &request, options.idempotency_key.as_deref(), true)
             .await?;
         Ok(response.json().await?)
     }
@@ -938,9 +926,7 @@ impl<'a> VoiceAgentsResource<'a> {
         options: IdempotentRequestOptions,
     ) -> Result<VoiceAgent> {
         if request.name.trim().is_empty() {
-            return Err(Error::Validation {
-                message: "name is required".to_string(),
-            });
+            return Err(Error::validation("name is required"));
         }
 
         let response = self
@@ -1032,12 +1018,7 @@ impl<'a> VoiceAgentsResource<'a> {
         let path = format!("/voice/agents/{}", encode_agent_id(id)?);
         let response = self
             .client
-            .patch_with_idempotency(
-                &path,
-                &request,
-                options.idempotency_key.as_deref(),
-                true,
-            )
+            .patch_with_idempotency(&path, &request, options.idempotency_key.as_deref(), true)
             .await?;
         Ok(response.json().await?)
     }
@@ -1210,18 +1191,16 @@ impl<'a> VoiceResource<'a> {
 
 fn encode_number(number: &str) -> Result<String> {
     if number.trim().is_empty() {
-        return Err(Error::Validation {
-            message: "Number is required: its id or E.164 phone number".to_string(),
-        });
+        return Err(Error::validation(
+            "Number is required: its id or E.164 phone number",
+        ));
     }
-    Ok(urlencoding::encode(number).into_owned())
+    path_id(number)
 }
 
 fn encode_agent_id(id: &str) -> Result<String> {
     if id.trim().is_empty() {
-        return Err(Error::Validation {
-            message: "Agent id is required".to_string(),
-        });
+        return Err(Error::validation("Agent id is required"));
     }
-    Ok(urlencoding::encode(id).into_owned())
+    path_id(id)
 }

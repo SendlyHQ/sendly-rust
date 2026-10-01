@@ -86,7 +86,7 @@ async fn test_list_available_requires_country() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("country")),
+        Error::Validation { message, .. } => assert!(message.contains("country")),
         _ => panic!("Expected Validation error"),
     }
 }
@@ -103,7 +103,7 @@ async fn test_list_available_requires_type() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("type")),
+        Error::Validation { message, .. } => assert!(message.contains("type")),
         _ => panic!("Expected Validation error"),
     }
 }
@@ -144,7 +144,7 @@ async fn test_list_owned_success() {
     assert_eq!(n.source.as_deref(), Some("purchased"));
     assert_eq!(n.country_code.as_deref(), Some("GB"));
     assert_eq!(n.phone_number_type.as_deref(), Some("mobile"));
-    assert_eq!(n.monthly_cost_cents, 150);
+    assert_eq!(n.monthly_cost_cents, Some(150));
 }
 
 // ==================== buy() Tests ====================
@@ -225,7 +225,9 @@ async fn test_buy_documents_required_carries_action() {
     let response = result.unwrap();
     assert_eq!(response.status, "documents_required");
     assert!(response.number.is_none());
-    let requirements = response.requirements.expect("requirements should be present");
+    let requirements = response
+        .requirements
+        .expect("requirements should be present");
     assert_eq!(requirements.len(), 1);
     let action = response.action.expect("action should be present");
     assert_eq!(action.url, "https://sendly.live/action/upload-docs/xyz");
@@ -251,10 +253,7 @@ async fn test_buy_with_action_code() {
     let client = create_test_client(&mock_server.uri());
     let result = client
         .numbers()
-        .buy(
-            BuyNumberRequest::new("+447700900123", "GB", "mobile", "1.50")
-                .action_code("ABC123"),
-        )
+        .buy(BuyNumberRequest::new("+447700900123", "GB", "mobile", "1.50").action_code("ABC123"))
         .await;
 
     assert!(result.is_ok());
@@ -302,4 +301,68 @@ async fn test_list_owned_reads_voice_fields() {
     assert_eq!(response.numbers[0].voice_mode.as_deref(), Some("agent"));
     assert_eq!(response.numbers[1].voice_enabled, None);
     assert_eq!(response.numbers[1].voice_mode, None);
+}
+
+fn verified_toll_free_number() -> serde_json::Value {
+    json!({
+        "id": "num_tf",
+        "phoneNumber": "+18005550199",
+        "status": "active",
+        "source": "provisioned",
+        "countryCode": "US",
+        "phoneNumberType": "toll_free",
+        "monthlyCostCents": null,
+        "requirementsSubmittedAt": null,
+        "pendingCancellation": false,
+        "scheduledReleaseAt": null,
+        "voiceEnabled": false,
+        "voiceMode": "none"
+    })
+}
+
+#[tokio::test]
+async fn test_list_accepts_a_number_with_no_stored_cost() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/numbers"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "numbers": [verified_toll_free_number()]
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let numbers = client.numbers().list().await.expect("list should decode");
+
+    assert_eq!(numbers.numbers.len(), 1);
+    assert_eq!(numbers.numbers[0].monthly_cost_cents, None);
+    assert_eq!(
+        numbers.numbers[0].phone_number_type.as_deref(),
+        Some("toll_free")
+    );
+}
+
+#[tokio::test]
+async fn test_get_accepts_a_number_with_no_stored_cost() {
+    let mut number = verified_toll_free_number();
+    number
+        .as_object_mut()
+        .unwrap()
+        .insert("isDefault".to_string(), json!(null));
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/numbers/num_tf"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(number))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let number = client
+        .numbers()
+        .get("num_tf")
+        .await
+        .expect("get should decode");
+
+    assert_eq!(number.monthly_cost_cents, None);
+    assert_eq!(number.is_default, None);
 }

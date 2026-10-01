@@ -345,7 +345,10 @@ async fn test_list_campaigns_success() {
     assert_eq!(c.brand_id, "brd_abc123");
     assert_eq!(c.use_case, "MIXED");
     assert_eq!(c.sub_use_cases, vec!["ACCOUNT_NOTIFICATION"]);
-    assert_eq!(c.description.as_deref(), Some("Order updates and support replies"));
+    assert_eq!(
+        c.description.as_deref(),
+        Some("Order updates and support replies")
+    );
     assert_eq!(c.status, "active");
     assert_eq!(c.sample_messages, vec!["Your order #123 has shipped!"]);
     assert_eq!(c.throughput.as_ref().unwrap().carriers_ready, 4);
@@ -434,7 +437,7 @@ async fn test_create_campaign_brand_not_verified() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("verified")),
+        Error::Validation { message, .. } => assert!(message.contains("verified")),
         _ => panic!("Expected Validation error"),
     }
 }
@@ -583,7 +586,7 @@ async fn test_assign_number_campaign_not_active() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("active")),
+        Error::Validation { message, .. } => assert!(message.contains("active")),
         _ => panic!("Expected Validation error"),
     }
 }

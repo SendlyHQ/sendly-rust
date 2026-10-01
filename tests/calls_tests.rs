@@ -108,7 +108,10 @@ async fn test_create_sends_full_body_and_idempotency_key() {
     assert_eq!(call.duration_secs, 0);
     assert_eq!(call.hangup_class, None);
     assert_eq!(call.recording_status, None);
-    assert_eq!(call.metadata.get("crmId").map(String::as_str), Some("lead_8812"));
+    assert_eq!(
+        call.metadata.get("crmId").map(String::as_str),
+        Some("lead_8812")
+    );
     assert!(call.transcript.is_none());
 
     let key = idempotency_key_of_request(&mock_server, 0)
@@ -122,7 +125,9 @@ async fn test_create_omits_unset_optional_fields() {
     let mock_server = setup_mock_server().await;
     Mock::given(method("POST"))
         .and(path("/calls"))
-        .and(body_json(json!({ "to": "+15555550123", "agentId": AGENT_ID })))
+        .and(body_json(
+            json!({ "to": "+15555550123", "agentId": AGENT_ID }),
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(call_json("ringing")))
         .mount(&mock_server)
         .await;
@@ -172,7 +177,7 @@ async fn test_create_requires_to_and_agent_id_before_sending() {
         .create(CreateCallRequest::new("", AGENT_ID))
         .await;
     match missing_to.unwrap_err() {
-        Error::Validation { message } => assert_eq!(message, "to is required"),
+        Error::Validation { message, .. } => assert_eq!(message, "to is required"),
         other => panic!("expected Validation, got {:?}", other),
     }
 
@@ -181,7 +186,7 @@ async fn test_create_requires_to_and_agent_id_before_sending() {
         .create(CreateCallRequest::new("+15555550123", "  "))
         .await;
     match missing_agent.unwrap_err() {
-        Error::Validation { message } => assert_eq!(message, "agentId is required"),
+        Error::Validation { message, .. } => assert_eq!(message, "agentId is required"),
         other => panic!("expected Validation, got {:?}", other),
     }
 
@@ -210,8 +215,11 @@ async fn test_create_insufficient_credits_maps_to_credits_error() {
         .await;
 
     match result.unwrap_err() {
-        Error::InsufficientCredits { message } => {
-            assert_eq!(message, "Calls cost 10 credits a minute. Current balance: 4.")
+        Error::InsufficientCredits { message, .. } => {
+            assert_eq!(
+                message,
+                "Calls cost 10 credits a minute. Current balance: 4."
+            )
         }
         other => panic!("expected InsufficientCredits, got {:?}", other),
     }
@@ -240,6 +248,7 @@ async fn test_create_e911_required_surfaces_code() {
             status_code,
             code,
             message,
+            ..
         } => {
             assert_eq!(status_code, 428);
             assert_eq!(code.as_deref(), Some("e911_required"));
@@ -297,7 +306,7 @@ async fn test_create_agent_required_maps_to_validation() {
         .await;
 
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("Pass agentId")),
+        Error::Validation { message, .. } => assert!(message.contains("Pass agentId")),
         other => panic!("expected Validation, got {:?}", other),
     }
 }
@@ -321,7 +330,7 @@ async fn test_create_voice_not_enabled_maps_to_not_found() {
         .await;
 
     match result.unwrap_err() {
-        Error::NotFound { message } => {
+        Error::NotFound { message, .. } => {
             assert_eq!(message, "Voice is not enabled for your account.")
         }
         other => panic!("expected NotFound, got {:?}", other),
@@ -413,7 +422,11 @@ async fn test_list_without_options_sends_no_query() {
         .await;
 
     let client = create_test_client(&mock_server.uri());
-    let page = client.calls().list(None).await.expect("list should succeed");
+    let page = client
+        .calls()
+        .list(None)
+        .await
+        .expect("list should succeed");
     assert!(page.data.is_empty());
 
     let requests = mock_server.received_requests().await.unwrap();
@@ -448,7 +461,11 @@ async fn test_get_agent_call_carries_transcript() {
         .await;
 
     let client = create_test_client(&mock_server.uri());
-    let call = client.calls().get(CALL_ID).await.expect("get should succeed");
+    let call = client
+        .calls()
+        .get(CALL_ID)
+        .await
+        .expect("get should succeed");
 
     assert_eq!(call.status, CallStatus::Completed);
     assert!(call.is_ended());
@@ -457,7 +474,10 @@ async fn test_get_agent_call_carries_transcript() {
     assert_eq!(call.credits_charged, 20);
     assert_eq!(call.hangup_class.as_deref(), Some("agent_agent_hangup"));
     assert_eq!(call.recording_status, Some(CallRecordingStatus::Ready));
-    assert_eq!(call.answered_at.as_deref(), Some("2026-09-12T14:03:19.000Z"));
+    assert_eq!(
+        call.answered_at.as_deref(),
+        Some("2026-09-12T14:03:19.000Z")
+    );
 
     let transcript = call.transcript.expect("agent calls carry a transcript");
     assert_eq!(transcript.len(), 2);
@@ -483,7 +503,11 @@ async fn test_get_dashboard_call_has_no_transcript_and_empty_metadata() {
         .await;
 
     let client = create_test_client(&mock_server.uri());
-    let call = client.calls().get(CALL_ID).await.expect("get should succeed");
+    let call = client
+        .calls()
+        .get(CALL_ID)
+        .await
+        .expect("get should succeed");
 
     assert_eq!(call.handled_by, CallHandledBy::Dashboard);
     assert_eq!(call.direction, CallDirection::Inbound);
@@ -523,7 +547,11 @@ async fn test_get_internal_call_tolerates_null_numbers_and_unknown_values() {
         .await;
 
     let client = create_test_client(&mock_server.uri());
-    let call = client.calls().get(CALL_ID).await.expect("get should succeed");
+    let call = client
+        .calls()
+        .get(CALL_ID)
+        .await
+        .expect("get should succeed");
 
     assert_eq!(call.kind, CallKind::Internal);
     assert_eq!(call.from_number, None);
@@ -557,7 +585,11 @@ async fn test_is_ended_only_for_terminal_statuses() {
             .respond_with(ResponseTemplate::new(200).set_body_json(call_json(status)))
             .mount_as_scoped(&mock_server)
             .await;
-        let call = client.calls().get(CALL_ID).await.expect("get should succeed");
+        let call = client
+            .calls()
+            .get(CALL_ID)
+            .await
+            .expect("get should succeed");
         assert_eq!(call.is_ended(), ended, "is_ended for {status}");
         assert_eq!(call.is_live(), live, "is_live for {status}");
         drop(scoped);
@@ -595,7 +627,7 @@ async fn test_get_not_found_maps_to_not_found() {
     let result = client.calls().get(CALL_ID).await;
 
     match result.unwrap_err() {
-        Error::NotFound { message } => {
+        Error::NotFound { message, .. } => {
             assert_eq!(message, "No call with that id is in this workspace.")
         }
         other => panic!("expected NotFound, got {:?}", other),

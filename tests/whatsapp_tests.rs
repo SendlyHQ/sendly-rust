@@ -62,7 +62,7 @@ async fn test_signup_create_number_not_eligible() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("active number")),
+        Error::Validation { message, .. } => assert!(message.contains("active number")),
         _ => panic!("Expected Validation error"),
     }
 }
@@ -274,7 +274,7 @@ async fn test_senders_get_profile_not_connected() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::NotFound { message } => assert!(message.contains("isn't connected")),
+        Error::NotFound { message, .. } => assert!(message.contains("isn't connected")),
         other => panic!("Expected NotFound error, got {:?}", other),
     }
 }
@@ -347,7 +347,7 @@ async fn test_senders_update_profile_field_too_long() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("139 characters")),
+        Error::Validation { message, .. } => assert!(message.contains("139 characters")),
         other => panic!("Expected Validation error, got {:?}", other),
     }
 }
@@ -605,7 +605,7 @@ async fn test_templates_create_missing_examples() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("example value")),
+        Error::Validation { message, .. } => assert!(message.contains("example value")),
         _ => panic!("Expected Validation error"),
     }
 }
@@ -678,7 +678,7 @@ async fn test_templates_update_not_editable() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => assert!(message.contains("APPROVED or REJECTED")),
+        Error::Validation { message, .. } => assert!(message.contains("APPROVED or REJECTED")),
         _ => panic!("Expected Validation error"),
     }
 }
@@ -776,4 +776,140 @@ async fn test_window_closed() {
     let window = result.unwrap();
     assert!(!window.open);
     assert!(window.expires_at.is_none());
+}
+
+// ==================== Values this SDK version does not know ====================
+
+#[tokio::test]
+async fn test_signup_with_a_new_status_still_decodes() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/whatsapp/signup/was_abc123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "was_abc123",
+            "status": "awaiting_payment",
+            "phoneNumber": "+15559876543",
+            "businessAccountId": null,
+            "failureReasons": null,
+            "updatedAt": "2026-07-30T10:00:00Z"
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let signup = client
+        .whatsapp()
+        .signup()
+        .get("was_abc123")
+        .await
+        .expect("an unknown signup status should not fail the decode");
+
+    assert_eq!(signup.id, "was_abc123");
+    assert_eq!(signup.status, WhatsAppSignupStatus::Unknown);
+    assert_eq!(signup.phone_number, "+15559876543");
+}
+
+#[tokio::test]
+async fn test_senders_with_a_new_status_still_decode() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/whatsapp/senders"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "senders": [
+                {
+                    "phoneNumber": "+15559876543",
+                    "displayName": "Acme Support",
+                    "status": "flagged",
+                    "qualityRating": "YELLOW",
+                    "createdAt": "2026-07-28T10:00:00Z"
+                },
+                {
+                    "phoneNumber": "+15551112222",
+                    "displayName": null,
+                    "status": "active",
+                    "qualityRating": "GREEN",
+                    "createdAt": "2026-07-30T10:00:00Z"
+                }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let response = client
+        .whatsapp()
+        .senders()
+        .list()
+        .await
+        .expect("an unknown sender status should not fail the list");
+
+    assert_eq!(response.senders.len(), 2);
+    assert_eq!(response.senders[0].status, WhatsAppSenderStatus::Unknown);
+    assert_eq!(
+        response.senders[0].quality_rating.as_deref(),
+        Some("YELLOW")
+    );
+    assert_eq!(response.senders[1].status, WhatsAppSenderStatus::Active);
+}
+
+#[tokio::test]
+async fn test_templates_with_a_new_status_or_category_still_decode() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/whatsapp/templates"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "templates": [
+                {
+                    "id": "wat_abc123",
+                    "name": "order_shipped",
+                    "language": "en_US",
+                    "category": "UTILITY",
+                    "status": "IN_APPEAL",
+                    "qualityRating": "GREEN",
+                    "rejectionReason": null,
+                    "createdAt": "2026-07-28T10:00:00Z",
+                    "updatedAt": "2026-07-29T10:00:00Z"
+                },
+                {
+                    "id": "wat_def456",
+                    "name": "login_code",
+                    "language": "en_US",
+                    "category": "AUTHENTICATION_INTERNATIONAL",
+                    "status": "APPROVED",
+                    "qualityRating": null,
+                    "rejectionReason": null,
+                    "createdAt": "2026-07-28T10:00:00Z",
+                    "updatedAt": "2026-07-29T10:00:00Z"
+                }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let response = client
+        .whatsapp()
+        .templates()
+        .list()
+        .await
+        .expect("an unknown template status or category should not fail the list");
+
+    assert_eq!(response.templates.len(), 2);
+    assert_eq!(
+        response.templates[0].status,
+        WhatsAppTemplateStatus::Unknown
+    );
+    assert_eq!(
+        response.templates[0].category,
+        WhatsAppTemplateCategory::Utility
+    );
+    assert_eq!(
+        response.templates[1].category,
+        WhatsAppTemplateCategory::Unknown
+    );
+    assert_eq!(
+        response.templates[1].status,
+        WhatsAppTemplateStatus::Approved
+    );
+    assert_eq!(response.templates[1].name, "login_code");
 }

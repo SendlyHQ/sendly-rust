@@ -64,10 +64,12 @@ async fn test_templates_get_uses_templates_path() {
     let mock_server = setup_mock_server().await;
     Mock::given(method("GET"))
         .and(path("/templates/tpl_abc"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(template_json("tpl_abc", "Welcome", "Hi {{name}}", "draft")),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(template_json(
+            "tpl_abc",
+            "Welcome",
+            "Hi {{name}}",
+            "draft",
+        )))
         .mount(&mock_server)
         .await;
 
@@ -89,11 +91,15 @@ async fn test_templates_create_posts_text_field() {
     // which would have been rejected as a missing required field.
     Mock::given(method("POST"))
         .and(path("/templates"))
-        .and(body_json(json!({ "name": "Welcome", "text": "Hi {{name}}" })))
-        .respond_with(
-            ResponseTemplate::new(201)
-                .set_body_json(template_json("tpl_abc", "Welcome", "Hi {{name}}", "draft")),
-        )
+        .and(body_json(
+            json!({ "name": "Welcome", "text": "Hi {{name}}" }),
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(template_json(
+            "tpl_abc",
+            "Welcome",
+            "Hi {{name}}",
+            "draft",
+        )))
         .mount(&mock_server)
         .await;
 
@@ -114,17 +120,22 @@ async fn test_templates_update_patches_text_field() {
     Mock::given(method("PATCH"))
         .and(path("/templates/tpl_abc"))
         .and(body_json(json!({ "text": "Hi {{name}} v2" })))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(template_json("tpl_abc", "Welcome", "Hi {{name}} v2", "draft")),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(template_json(
+            "tpl_abc",
+            "Welcome",
+            "Hi {{name}} v2",
+            "draft",
+        )))
         .mount(&mock_server)
         .await;
 
     let client = create_test_client(&mock_server.uri());
     let template = client
         .templates()
-        .update("tpl_abc", UpdateTemplateRequest::new().text("Hi {{name}} v2"))
+        .update(
+            "tpl_abc",
+            UpdateTemplateRequest::new().text("Hi {{name}} v2"),
+        )
         .await
         .expect("update should succeed");
 
@@ -222,17 +233,22 @@ async fn test_templates_update_deprecated_body_builder_sends_text() {
     Mock::given(method("PATCH"))
         .and(path("/templates/tpl_abc"))
         .and(body_json(json!({ "text": "Hi {{name}} v2" })))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(template_json("tpl_abc", "Welcome", "Hi {{name}} v2", "draft")),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(template_json(
+            "tpl_abc",
+            "Welcome",
+            "Hi {{name}} v2",
+            "draft",
+        )))
         .mount(&mock_server)
         .await;
 
     let client = create_test_client(&mock_server.uri());
     let template = client
         .templates()
-        .update("tpl_abc", UpdateTemplateRequest::new().body("Hi {{name}} v2"))
+        .update(
+            "tpl_abc",
+            UpdateTemplateRequest::new().body("Hi {{name}} v2"),
+        )
         .await
         .expect("update should succeed");
 

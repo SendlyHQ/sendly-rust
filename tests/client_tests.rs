@@ -83,7 +83,10 @@ async fn test_client_api_key_in_headers() {
 
     let result = client
         .messages()
-        .send(sendly::SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
+        .send(sendly::SendMessageRequest::new(
+            "+15551234567".to_string(),
+            "Test".to_string(),
+        ))
         .await;
 
     assert!(result.is_ok());
@@ -116,7 +119,10 @@ async fn test_client_user_agent_header() {
 
     let result = client
         .messages()
-        .send(sendly::SendMessageRequest::new("+15551234567".to_string(), "Test".to_string()))
+        .send(sendly::SendMessageRequest::new(
+            "+15551234567".to_string(),
+            "Test".to_string(),
+        ))
         .await;
 
     assert!(result.is_ok());

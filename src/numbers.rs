@@ -20,7 +20,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 
 /// A country Sendly can provision numbers in.
@@ -94,9 +94,10 @@ pub struct OwnedNumber {
     /// Absent on the trimmed `number` returned by a buy response.
     #[serde(default, alias = "phoneNumberType")]
     pub phone_number_type: Option<String>,
-    /// Monthly cost in cents.
+    /// Monthly cost in cents, or `None` when the number has no recorded
+    /// price, such as the toll-free number that comes with a verification.
     #[serde(default, alias = "monthlyCostCents")]
-    pub monthly_cost_cents: i64,
+    pub monthly_cost_cents: Option<i64>,
     /// Whether this is the workspace's default sending number.
     ///
     /// Present on the single-number responses ([`NumbersResource::get`],
@@ -388,14 +389,10 @@ impl<'a> NumbersResource<'a> {
         options: ListAvailableNumbersOptions,
     ) -> Result<AvailableNumbersResponse> {
         if options.country.is_empty() {
-            return Err(Error::Validation {
-                message: "list_available requires a country".to_string(),
-            });
+            return Err(Error::validation("list_available requires a country"));
         }
         if options.r#type.is_empty() {
-            return Err(Error::Validation {
-                message: "list_available requires a type".to_string(),
-            });
+            return Err(Error::validation("list_available requires a type"));
         }
         let params = options.to_query_params();
         let response = self.client.get("/numbers/available", &params).await?;
@@ -412,11 +409,9 @@ impl<'a> NumbersResource<'a> {
     /// the returned record includes [`OwnedNumber::is_default`].
     pub async fn get(&self, id: &str) -> Result<OwnedNumber> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Number ID is required".to_string(),
-            });
+            return Err(Error::validation("Number ID is required"));
         }
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/numbers/{}", encoded_id);
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
@@ -431,24 +426,14 @@ impl<'a> NumbersResource<'a> {
     ///   release and keep the number.
     ///
     /// Returns the updated record (including [`OwnedNumber::is_default`]).
-    pub async fn update(
-        &self,
-        id: &str,
-        request: UpdateNumberRequest,
-    ) -> Result<OwnedNumber> {
+    pub async fn update(&self, id: &str, request: UpdateNumberRequest) -> Result<OwnedNumber> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Number ID is required".to_string(),
-            });
+            return Err(Error::validation("Number ID is required"));
         }
         if !request.has_mutation() {
-            return Err(Error::Validation {
-                message:
-                    "Provide at least one of make_default() or keep() (isDefault / pendingCancellation)"
-                        .to_string(),
-            });
+            return Err(Error::validation("Provide at least one of make_default() or keep() (isDefault / pendingCancellation)"));
         }
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/numbers/{}", encoded_id);
         let response = self.client.patch(&path, &request).await?;
         Ok(response.json().await?)
@@ -459,11 +444,9 @@ impl<'a> NumbersResource<'a> {
     /// `scheduled_release_at`); everything else is released immediately.
     pub async fn release(&self, id: &str) -> Result<ReleaseNumberResponse> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Number ID is required".to_string(),
-            });
+            return Err(Error::validation("Number ID is required"));
         }
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/numbers/{}", encoded_id);
         let response = self.client.delete(&path).await?;
         Ok(response.json().await?)

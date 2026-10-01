@@ -13,10 +13,10 @@ use crate::error::{ApiErrorResponse, Error, Result};
 use crate::labels::LabelsResource;
 use crate::links::LinksResource;
 use crate::media::Media;
+use crate::messages::Messages;
 use crate::numbers::NumbersResource;
 use crate::rcs::RcsResource;
 use crate::rules::RulesResource;
-use crate::messages::Messages;
 use crate::templates::TemplatesResource;
 use crate::tendlc::TenDlcResource;
 use crate::verify::VerifyResource;
@@ -28,7 +28,7 @@ use crate::whatsapp::WhatsAppResource;
 pub const DEFAULT_BASE_URL: &str = "https://sendly.live/api/v1";
 
 /// SDK version.
-pub const VERSION: &str = "5.1.0";
+pub const VERSION: &str = "6.0.0";
 
 /// Configuration for the Sendly client.
 #[derive(Debug, Clone)]
@@ -285,6 +285,10 @@ impl Sendly {
         self.post_with_idempotency(path, body, None, true).await
     }
 
+    pub(crate) async fn post_empty(&self, path: &str) -> Result<Response> {
+        self.post(path, &serde_json::json!({})).await
+    }
+
     /// Makes a POST request with idempotency-key handling.
     ///
     /// A caller-supplied key is validated and sent verbatim. Without one,
@@ -430,32 +434,64 @@ impl Sendly {
         .await
     }
 
-    /// Makes a multipart POST request.
-    pub(crate) async fn post_multipart(
+    /// Makes a POST request that is sent once and never retried, not even
+    /// after a timeout or a network error.
+    pub(crate) async fn post_once<T: serde::Serialize>(
         &self,
         path: &str,
-        form: multipart::Form,
+        body: &T,
     ) -> Result<Response> {
         let url = format!("{}{}", self.config.base_url, path);
-        let idempotency_key = generate_idempotency_key();
-
         let req = self
             .client
             .post(&url)
-            .multipart(form)
+            .json(body)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Accept", "application/json")
-            .header("User-Agent", format!("sendly-rs/{}", VERSION))
-            .header("Idempotency-Key", &idempotency_key);
+            .header("User-Agent", format!("sendly-rs/{VERSION}"));
         let req = if let Some(ref org_id) = self.organization_id {
             req.header("X-Organization-Id", org_id)
         } else {
             req
         };
-        let response = req
-            .send()
-            .await
-            .map_err(|e| {
+        let response = req.send().await.map_err(|e| {
+            if e.is_timeout() {
+                Error::Timeout
+            } else if e.is_connect() {
+                Error::Network {
+                    message: e.to_string(),
+                }
+            } else {
+                Error::Http(e)
+            }
+        })?;
+        self.handle_response(response).await
+    }
+
+    /// Makes a multipart POST request.
+    pub(crate) async fn post_multipart<F>(&self, path: &str, build_form: F) -> Result<Response>
+    where
+        F: Fn() -> Result<multipart::Form>,
+    {
+        let url = format!("{}{}", self.config.base_url, path);
+        let idempotency_key = generate_idempotency_key();
+        let mut attempt = 0;
+
+        loop {
+            let req = self
+                .client
+                .post(&url)
+                .multipart(build_form()?)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Accept", "application/json")
+                .header("User-Agent", format!("sendly-rs/{}", VERSION))
+                .header("Idempotency-Key", &idempotency_key);
+            let req = if let Some(ref org_id) = self.organization_id {
+                req.header("X-Organization-Id", org_id)
+            } else {
+                req
+            };
+            let response = req.send().await.map_err(|e| {
                 if e.is_timeout() {
                     Error::Timeout
                 } else if e.is_connect() {
@@ -467,7 +503,17 @@ impl Sendly {
                 }
             })?;
 
-        self.handle_response(response).await
+            match self.handle_response(response).await {
+                Err(error) if attempt < self.config.max_retries => {
+                    match transient_refusal_delay(&error) {
+                        Some(delay) => tokio::time::sleep(delay).await,
+                        None => return Err(error),
+                    }
+                }
+                result => return result,
+            }
+            attempt += 1;
+        }
     }
 
     /// Makes a DELETE request.
@@ -498,17 +544,26 @@ impl Sendly {
         Fut: std::future::Future<Output = std::result::Result<Response, reqwest::Error>>,
     {
         let mut last_error: Option<Error> = None;
+        let mut wait: Option<Duration> = None;
 
         for attempt in 0..=self.config.max_retries {
-            if attempt > 0 {
+            if let Some(delay) = wait.take() {
+                tokio::time::sleep(delay).await;
+            } else if attempt > 0 {
                 let delay = Duration::from_secs(2u64.pow(attempt - 1));
                 tokio::time::sleep(delay).await;
             }
 
             match request_fn().await {
-                Ok(response) => {
-                    return self.handle_response(response).await;
-                }
+                Ok(response) => match self.handle_response(response).await {
+                    Err(error) if attempt < self.config.max_retries => {
+                        match transient_refusal_delay(&error) {
+                            Some(delay) => wait = Some(delay),
+                            None => return Err(error),
+                        }
+                    }
+                    result => return result,
+                },
                 Err(e) => {
                     if e.is_timeout() {
                         last_error = Some(Error::Timeout);
@@ -536,38 +591,88 @@ impl Sendly {
             return Ok(response);
         }
 
-        let retry_after = response
+        let header_retry_after = response
             .headers()
             .get("Retry-After")
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse().ok());
+            .and_then(|v| v.trim().parse().ok());
 
-        let error_body: ApiErrorResponse = response.json().await.unwrap_or(ApiErrorResponse {
-            message: None,
-            error: None,
-            code: None,
-        });
+        let body: Option<serde_json::Value> = response.json().await.ok();
+        let error_body: ApiErrorResponse = body
+            .as_ref()
+            .and_then(|b| serde_json::from_value(b.clone()).ok())
+            .unwrap_or_default();
 
         let message = error_body.message();
+        let code = error_body.code();
 
         Err(match status {
-            StatusCode::UNAUTHORIZED => Error::Authentication { message },
-            StatusCode::PAYMENT_REQUIRED => Error::InsufficientCredits { message },
-            StatusCode::NOT_FOUND => Error::NotFound { message },
+            StatusCode::UNAUTHORIZED => Error::Authentication {
+                message,
+                code,
+                body,
+            },
+            StatusCode::PAYMENT_REQUIRED => Error::InsufficientCredits {
+                message,
+                code,
+                body,
+            },
+            StatusCode::NOT_FOUND => Error::NotFound {
+                message,
+                code,
+                body,
+            },
             StatusCode::TOO_MANY_REQUESTS => Error::RateLimit {
                 message,
-                retry_after,
+                retry_after: header_retry_after.or_else(|| body_retry_after(body.as_ref())),
+                code,
+                body,
             },
-            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
-                Error::Validation { message }
-            }
+            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => Error::Validation {
+                message,
+                code,
+                body,
+            },
             _ => Error::Api {
                 message,
                 status_code: status.as_u16(),
-                code: error_body.code(),
+                code,
+                body,
             },
         })
     }
+}
+
+const MAX_RATE_LIMIT_WAIT_SECS: u64 = 60;
+
+fn transient_refusal_delay(error: &Error) -> Option<Duration> {
+    match error {
+        Error::RateLimit {
+            code: Some(code),
+            retry_after,
+            ..
+        } if code == "too_many_concurrent_verifications" => {
+            let secs = retry_after.unwrap_or(1);
+            (secs <= MAX_RATE_LIMIT_WAIT_SECS).then(|| Duration::from_secs(secs))
+        }
+        _ => None,
+    }
+}
+
+fn body_retry_after(body: Option<&serde_json::Value>) -> Option<u64> {
+    let body = body?;
+    body.get("retryAfter")
+        .or_else(|| body.get("retry_after"))?
+        .as_u64()
+}
+
+pub(crate) fn path_id(id: &str) -> Result<String> {
+    if matches!(id, "" | "." | "..") {
+        return Err(Error::validation(format!(
+            "Invalid id {id:?}: an id in a path cannot be empty, \".\" or \"..\""
+        )));
+    }
+    Ok(urlencoding::encode(id).into_owned())
 }
 
 fn generate_idempotency_key() -> String {
@@ -583,9 +688,9 @@ fn normalize_idempotency_key(key: Option<&str>) -> Result<Option<String>> {
         return Ok(None);
     }
     if trimmed.len() > 255 || !trimmed.bytes().all(|b| (0x20..=0x7E).contains(&b)) {
-        return Err(Error::Validation {
-            message: "Idempotency key must be 1-255 printable ASCII characters".to_string(),
-        });
+        return Err(Error::validation(
+            "Idempotency key must be 1-255 printable ASCII characters",
+        ));
     }
     Ok(Some(trimmed.to_string()))
 }

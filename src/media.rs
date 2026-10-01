@@ -27,9 +27,9 @@ impl<'a> Media<'a> {
 
         let content_type = mime_from_extension(path);
 
-        let data = fs::read(file_path).await.map_err(|e| Error::Validation {
-            message: format!("Failed to read file: {}", e),
-        })?;
+        let data = fs::read(file_path)
+            .await
+            .map_err(|e| Error::validation(format!("Failed to read file: {}", e)))?;
 
         self.upload_bytes(data, &filename, &content_type).await
     }
@@ -40,23 +40,22 @@ impl<'a> Media<'a> {
         filename: &str,
         content_type: &str,
     ) -> Result<MediaFile> {
-        let part = multipart::Part::bytes(data)
-            .file_name(filename.to_string())
-            .mime_str(content_type)
-            .map_err(|e| Error::Validation {
-                message: format!("Invalid content type: {}", e),
-            })?;
+        let build_form = || {
+            let part = multipart::Part::bytes(data.clone())
+                .file_name(filename.to_string())
+                .mime_str(content_type)
+                .map_err(|e| Error::validation(format!("Invalid content type: {}", e)))?;
+            Ok(multipart::Form::new().part("file", part))
+        };
 
-        let form = multipart::Form::new().part("file", part);
-
-        let response = self.client.post_multipart("/media", form).await?;
+        let response = self.client.post_multipart("/media", build_form).await?;
         let media_file: MediaFile = response.json().await?;
 
         Ok(media_file)
     }
 }
 
-fn mime_from_extension(path: &Path) -> String {
+pub(crate) fn mime_from_extension(path: &Path) -> String {
     match path.extension().and_then(|e| e.to_str()) {
         Some("jpg") | Some("jpeg") => "image/jpeg".to_string(),
         Some("png") => "image/png".to_string(),

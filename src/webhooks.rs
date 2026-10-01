@@ -484,10 +484,7 @@ impl Webhooks {
             data: msg_data,
             object: obj_val.clone(),
             created,
-            api_version: raw["api_version"]
-                .as_str()
-                .unwrap_or("2024-01")
-                .to_string(),
+            api_version: raw["api_version"].as_str().unwrap_or("2024-01").to_string(),
             livemode: raw["livemode"].as_bool().unwrap_or(false),
         })
     }
@@ -536,8 +533,18 @@ mod tests {
             .to_string();
         let signature = Webhooks::generate_signature(payload, secret, Some(&ts));
 
-        assert!(Webhooks::verify_signature(payload, &signature, secret, Some(&ts)));
-        assert!(!Webhooks::verify_signature(payload, "invalid", secret, Some(&ts)));
+        assert!(Webhooks::verify_signature(
+            payload,
+            &signature,
+            secret,
+            Some(&ts)
+        ));
+        assert!(!Webhooks::verify_signature(
+            payload,
+            "invalid",
+            secret,
+            Some(&ts)
+        ));
     }
 
     #[test]
@@ -546,7 +553,9 @@ mod tests {
         let secret = "test_secret";
         let signature = Webhooks::generate_signature(payload, secret, None);
 
-        assert!(Webhooks::verify_signature(payload, &signature, secret, None));
+        assert!(Webhooks::verify_signature(
+            payload, &signature, secret, None
+        ));
     }
 
     #[test]
@@ -572,7 +581,10 @@ mod tests {
     #[test]
     fn unknown_event_type_falls_back_instead_of_failing() {
         let ev: WebhookEventType = serde_json::from_str("\"something.invented_later\"").unwrap();
-        assert_eq!(ev, WebhookEventType::Unknown("something.invented_later".to_string()));
+        assert_eq!(
+            ev,
+            WebhookEventType::Unknown("something.invented_later".to_string())
+        );
     }
 
     #[test]
@@ -606,7 +618,10 @@ mod tests {
 
         let data = event.data.expect("a real message must keep its typed view");
         assert_eq!(data.id, "msg_1");
-        assert_eq!(data.status, WebhookMessageStatus::Unknown("scheduled".to_string()));
+        assert_eq!(
+            data.status,
+            WebhookMessageStatus::Unknown("scheduled".to_string())
+        );
     }
 
     // Regression: this used to return ParseError("missing field `id`"), so every
@@ -618,7 +633,10 @@ mod tests {
         let event = Webhooks::parse_event(payload, &sig, "s", None).expect("should parse");
 
         assert_eq!(event.event_type, WebhookEventType::RcsAgentLive);
-        assert!(event.data.is_none(), "a lifecycle event has no message view");
+        assert!(
+            event.data.is_none(),
+            "a lifecycle event has no message view"
+        );
 
         let agent: AgentLive = event.object_as().expect("object_as");
         assert_eq!(agent.agent_id, "agt_1");

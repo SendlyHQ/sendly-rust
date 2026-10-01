@@ -7,8 +7,7 @@ use common::{
 use regex::Regex;
 use sendly::{
     BatchMessageItem, Error, IdempotentRequestOptions, ScheduleMessageRequest, SendBatchRequest,
-    SendGroupMessageRequest, SendMessageRequest, SendRcsMessageRequest,
-    SendWhatsAppMessageRequest,
+    SendGroupMessageRequest, SendMessageRequest, SendRcsMessageRequest, SendWhatsAppMessageRequest,
 };
 use serde_json::json;
 use wiremock::http::HeaderName;
@@ -65,9 +64,7 @@ fn batch_request() -> SendBatchRequest {
 fn mock_send_delayed() -> Mock {
     Mock::given(method("POST"))
         .and(path("/messages"))
-        .respond_with(
-            ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(2)),
-        )
+        .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(2)))
         .up_to_n_times(1)
 }
 
@@ -204,6 +201,128 @@ async fn test_caller_key_reused_across_timeout_retry() {
         key_of_request(&mock_server, 1).await.as_deref(),
         Some("signup-otp-user-99")
     );
+}
+
+#[tokio::test]
+async fn test_a_5xx_is_returned_without_a_retry_that_could_change_the_key() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(
+            ResponseTemplate::new(500).set_body_json(json!({ "error": "Failed to send message" })),
+        )
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&mock_server)
+        .await;
+    mock_send_success().mount(&mock_server).await;
+
+    let config = sendly::SendlyConfig::new()
+        .base_url(mock_server.uri())
+        .max_retries(2);
+    let client = sendly::Sendly::with_config(TEST_API_KEY, config);
+    let error = client.messages().send(send_request()).await.unwrap_err();
+
+    assert!(
+        matches!(
+            error,
+            Error::Api {
+                status_code: 500,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert!(!error.is_retryable());
+    assert_eq!(mock_server.received_requests().await.unwrap().len(), 1);
+    let key = key_of_request(&mock_server, 0).await.expect("key present");
+    assert!(Regex::new(AUTO_KEY_PATTERN).unwrap().is_match(&key));
+
+    let retried = client
+        .messages()
+        .send_with_options(
+            send_request(),
+            IdempotentRequestOptions::new().idempotency_key(&key),
+        )
+        .await;
+    assert!(retried.is_ok());
+    assert_eq!(key_of_request(&mock_server, 1).await, Some(key));
+}
+
+async fn gateway_timeout_server() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let heads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = heads.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let mut received = Vec::new();
+            let mut buf = [0u8; 4096];
+            while !received.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = socket.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                received.extend_from_slice(&buf[..n]);
+            }
+            recorded
+                .lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&received).to_lowercase());
+            let body = json!({
+                "type": "https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/",
+                "title": "Error 524: A timeout occurred",
+                "status": 524,
+                "detail": "The origin web server did not respond in time.",
+                "instance": "8f1e2d3c4b5a6978",
+                "error_code": 524,
+                "error_category": "origin",
+                "retryable": true,
+                "retry_after": 60
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 524 A Timeout Occurred\r\nContent-Type: application/json; charset=utf-8\r\nRetry-After: 60\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.shutdown().await;
+        }
+    });
+    (base_url, heads)
+}
+
+#[tokio::test]
+async fn test_a_gateway_timeout_json_page_is_returned_once_with_its_body() {
+    let (base_url, heads) = gateway_timeout_server().await;
+
+    let config = sendly::SendlyConfig::new()
+        .base_url(base_url)
+        .max_retries(2);
+    let client = sendly::Sendly::with_config(TEST_API_KEY, config);
+    let error = client.messages().send(send_request()).await.unwrap_err();
+
+    assert!(
+        matches!(
+            error,
+            Error::Api {
+                status_code: 524,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(error.body().unwrap()["error_category"], "origin");
+    let heads = heads.lock().unwrap();
+    assert_eq!(heads.len(), 1);
+    assert!(heads[0].contains("idempotency-key: sendly-rust-retry-"));
+    assert!(heads[0].contains("accept: application/json"));
 }
 
 // ==================== Caller-Supplied Key Tests ====================
@@ -460,7 +579,7 @@ async fn test_non_ascii_caller_key_rejected_without_network_call() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("1-255 printable ASCII"));
         }
         _ => panic!("Expected Validation error"),
@@ -483,7 +602,7 @@ async fn test_overlong_caller_key_rejected_without_network_call() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        Error::Validation { message } => {
+        Error::Validation { message, .. } => {
             assert!(message.contains("1-255 printable ASCII"));
         }
         _ => panic!("Expected Validation error"),

@@ -1,4 +1,4 @@
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 use crate::models::{
     CreateShortLinkRequest, CreateShortLinkResponse, ListShortLinksOptions, ShortLinkListResponse,
@@ -114,12 +114,10 @@ impl<'a> LinksResource<'a> {
         disabled: bool,
     ) -> Result<UpdateShortLinkResponse> {
         if code.is_empty() {
-            return Err(Error::Validation {
-                message: "Link code is required".to_string(),
-            });
+            return Err(Error::validation("Link code is required"));
         }
 
-        let encoded = urlencoding::encode(code);
+        let encoded = path_id(code)?;
         let path = format!("/links/{}", encoded);
         let body = UpdateShortLinkRequest { disabled };
         let response = self.client.patch(&path, &body).await?;
@@ -143,9 +141,7 @@ impl<'a> LinksResource<'a> {
 
 fn validate_url(url: &str) -> Result<()> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return Err(Error::Validation {
-            message: "url must be an http:// or https:// URL".to_string(),
-        });
+        return Err(Error::validation("url must be an http:// or https:// URL"));
     }
     Ok(())
 }

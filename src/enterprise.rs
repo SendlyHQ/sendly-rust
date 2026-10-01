@@ -1,25 +1,25 @@
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::Result;
-use reqwest::multipart;
 use crate::models::{
     AnalyticsOverview, AnalyticsPeriod, AutoTopUpSettings, BillingBreakdown,
     BillingBreakdownOptions, BulkProvisionRequest, BulkProvisionResult, BulkProvisionWorkspace,
     CancelInvitationResponse, CreateOptInPageRequest, CreateOptInPageResponse,
     CreateWorkspaceKeyRequest, CreateWorkspaceRequest, CreditsAnalytics, DeleteOptInPageResponse,
     DeleteWorkspaceResponse, DeliveryByWorkspace, DepositCreditsRequest, EnterpriseAccount,
-    EnterpriseWebhook, EnterpriseWebhookTestResult, EnterpriseWorkspace,
-    EnterpriseWorkspaceDetail, GenerateBusinessPageRequest, GenerateBusinessPageResponse,
-    InheritVerificationRequest, InheritVerificationResponse, Invitation, MessagesAnalytics,
-    OptInPage, PoolCredits, ProvisionWorkspaceRequest, ProvisionWorkspaceResponse, QuotaSettings,
-    ResumeWorkspaceResponse, RevokeKeyResponse, SendInvitationRequest, SetCustomDomainRequest,
-    SetCustomDomainResponse, SetEnterpriseWebhookRequest, SetWorkspaceWebhookRequest,
-    SetWorkspaceWebhookResponse, SubmitVerificationResponse, VerificationSubmitInput,
-    SuspendWorkspaceRequest, SuspendWorkspaceResponse, UpdateAutoTopUpRequest,
-    UpdateOptInPageRequest, UpdateQuotaRequest, VerificationDocumentUploadResponse,
-    WorkspaceCredits, WorkspaceKey, WorkspaceKeyResponse, WorkspaceTransferCreditsRequest,
-    WorkspaceTransferCreditsResponse, WorkspaceVerificationStatus, WorkspaceWebhookConfig,
-    WorkspaceWebhookTestResult,
+    EnterpriseWebhook, EnterpriseWebhookTestResult, EnterpriseWorkspace, EnterpriseWorkspaceDetail,
+    EnterpriseWorkspaceList, GenerateBusinessPageRequest, GenerateBusinessPageResponse,
+    InheritVerificationOptions, InheritVerificationRequest, InheritVerificationResponse,
+    Invitation, ListWorkspacesOptions, MessagesAnalytics, OptInPage, PoolCredits,
+    ProvisionWorkspaceRequest, ProvisionWorkspaceResponse, QuotaSettings, ResumeWorkspaceResponse,
+    RevokeKeyResponse, SendInvitationRequest, SetCustomDomainRequest, SetCustomDomainResponse,
+    SetEnterpriseWebhookRequest, SetWorkspaceWebhookRequest, SetWorkspaceWebhookResponse,
+    SubmitVerificationResponse, SuspendWorkspaceRequest, SuspendWorkspaceResponse,
+    UpdateAutoTopUpRequest, UpdateOptInPageRequest, UpdateQuotaRequest,
+    VerificationDocumentUploadResponse, VerificationSubmitInput, WorkspaceCredits, WorkspaceKey,
+    WorkspaceKeyResponse, WorkspaceTransferCreditsRequest, WorkspaceTransferCreditsResponse,
+    WorkspaceVerificationStatus, WorkspaceWebhookConfig, WorkspaceWebhookTestResult,
 };
+use reqwest::multipart;
 
 pub struct WorkspacesResource<'a> {
     client: &'a Sendly,
@@ -35,19 +35,34 @@ impl<'a> WorkspacesResource<'a> {
         Ok(response.json().await?)
     }
 
-    pub async fn list(&self) -> Result<Vec<EnterpriseWorkspaceDetail>> {
-        let response = self.client.get("/enterprise/workspaces", &[]).await?;
+    /// Lists the enterprise's workspaces: the first page of 50, newest
+    /// first. Use [`list_with_options`](Self::list_with_options) to page,
+    /// filter and sort.
+    pub async fn list(&self) -> Result<EnterpriseWorkspaceList> {
+        self.list_with_options(ListWorkspacesOptions::default())
+            .await
+    }
+
+    /// Lists the enterprise's workspaces with paging, filters and sorting.
+    pub async fn list_with_options(
+        &self,
+        options: ListWorkspacesOptions,
+    ) -> Result<EnterpriseWorkspaceList> {
+        let response = self
+            .client
+            .get("/enterprise/workspaces", &options.to_query_params())
+            .await?;
         Ok(response.json().await?)
     }
 
     pub async fn get(&self, workspace_id: impl AsRef<str>) -> Result<EnterpriseWorkspaceDetail> {
-        let path = format!("/enterprise/workspaces/{}", workspace_id.as_ref());
+        let path = format!("/enterprise/workspaces/{}", path_id(workspace_id.as_ref())?);
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
     }
 
     pub async fn delete(&self, workspace_id: impl AsRef<str>) -> Result<DeleteWorkspaceResponse> {
-        let path = format!("/enterprise/workspaces/{}", workspace_id.as_ref());
+        let path = format!("/enterprise/workspaces/{}", path_id(workspace_id.as_ref())?);
         let response = self.client.delete(&path).await?;
         Ok(response.json().await?)
     }
@@ -69,7 +84,7 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<SubmitVerificationResponse> {
         let path = format!(
             "/enterprise/workspaces/{}/verification/submit",
-            workspace_id.as_ref()
+            path_id(workspace_id.as_ref())?
         );
         let response = self.client.post(&path, &data).await?;
         Ok(response.json().await?)
@@ -92,12 +107,29 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<InheritVerificationResponse> {
         let path = format!(
             "/enterprise/workspaces/{}/verification/inherit",
-            workspace_id.as_ref()
+            path_id(workspace_id.as_ref())?
         );
         let request = InheritVerificationRequest {
             source_workspace_id: source_workspace_id.into(),
         };
         let response = self.client.post(&path, &request).await?;
+        Ok(response.json().await?)
+    }
+
+    /// Inherits another workspace's verification, optionally ordering this
+    /// workspace its own toll-free number
+    /// ([`InheritVerificationOptions::purchase_new_number`]) instead of
+    /// sharing the source workspace's.
+    pub async fn inherit_verification_with_options(
+        &self,
+        workspace_id: impl AsRef<str>,
+        options: InheritVerificationOptions,
+    ) -> Result<InheritVerificationResponse> {
+        let path = format!(
+            "/enterprise/workspaces/{}/verification/inherit",
+            path_id(workspace_id.as_ref())?
+        );
+        let response = self.client.post(&path, &options).await?;
         Ok(response.json().await?)
     }
 
@@ -107,7 +139,7 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<WorkspaceVerificationStatus> {
         let path = format!(
             "/enterprise/workspaces/{}/verification",
-            workspace_id.as_ref()
+            path_id(workspace_id.as_ref())?
         );
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
@@ -121,7 +153,7 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<WorkspaceTransferCreditsResponse> {
         let path = format!(
             "/enterprise/workspaces/{}/transfer-credits",
-            workspace_id.as_ref()
+            path_id(workspace_id.as_ref())?
         );
         let request = WorkspaceTransferCreditsRequest {
             source_workspace_id: source_workspace_id.into(),
@@ -132,7 +164,10 @@ impl<'a> WorkspacesResource<'a> {
     }
 
     pub async fn get_credits(&self, workspace_id: impl AsRef<str>) -> Result<WorkspaceCredits> {
-        let path = format!("/enterprise/workspaces/{}/credits", workspace_id.as_ref());
+        let path = format!(
+            "/enterprise/workspaces/{}/credits",
+            path_id(workspace_id.as_ref())?
+        );
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
     }
@@ -142,13 +177,19 @@ impl<'a> WorkspacesResource<'a> {
         workspace_id: impl AsRef<str>,
         request: CreateWorkspaceKeyRequest,
     ) -> Result<WorkspaceKeyResponse> {
-        let path = format!("/enterprise/workspaces/{}/keys", workspace_id.as_ref());
+        let path = format!(
+            "/enterprise/workspaces/{}/keys",
+            path_id(workspace_id.as_ref())?
+        );
         let response = self.client.post(&path, &request).await?;
         Ok(response.json().await?)
     }
 
     pub async fn list_keys(&self, workspace_id: impl AsRef<str>) -> Result<Vec<WorkspaceKey>> {
-        let path = format!("/enterprise/workspaces/{}/keys", workspace_id.as_ref());
+        let path = format!(
+            "/enterprise/workspaces/{}/keys",
+            path_id(workspace_id.as_ref())?
+        );
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
     }
@@ -160,8 +201,8 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<RevokeKeyResponse> {
         let path = format!(
             "/enterprise/workspaces/{}/keys/{}",
-            workspace_id.as_ref(),
-            key_id.as_ref()
+            path_id(workspace_id.as_ref())?,
+            path_id(key_id.as_ref())?
         );
         let response = self.client.delete(&path).await?;
         Ok(response.json().await?)
@@ -170,7 +211,7 @@ impl<'a> WorkspacesResource<'a> {
     pub async fn list_opt_in_pages(&self, workspace_id: impl AsRef<str>) -> Result<Vec<OptInPage>> {
         let path = format!(
             "/enterprise/workspaces/{}/opt-in-pages",
-            workspace_id.as_ref()
+            path_id(workspace_id.as_ref())?
         );
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
@@ -183,7 +224,7 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<CreateOptInPageResponse> {
         let path = format!(
             "/enterprise/workspaces/{}/opt-in-pages",
-            workspace_id.as_ref()
+            path_id(workspace_id.as_ref())?
         );
         let response = self.client.post(&path, &request).await?;
         Ok(response.json().await?)
@@ -197,8 +238,8 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<OptInPage> {
         let path = format!(
             "/enterprise/workspaces/{}/opt-in-pages/{}",
-            workspace_id.as_ref(),
-            page_id.as_ref()
+            path_id(workspace_id.as_ref())?,
+            path_id(page_id.as_ref())?
         );
         let response = self.client.patch(&path, &request).await?;
         Ok(response.json().await?)
@@ -211,8 +252,8 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<DeleteOptInPageResponse> {
         let path = format!(
             "/enterprise/workspaces/{}/opt-in-pages/{}",
-            workspace_id.as_ref(),
-            page_id.as_ref()
+            path_id(workspace_id.as_ref())?,
+            path_id(page_id.as_ref())?
         );
         let response = self.client.delete(&path).await?;
         Ok(response.json().await?)
@@ -223,7 +264,10 @@ impl<'a> WorkspacesResource<'a> {
         workspace_id: impl AsRef<str>,
         request: SetWorkspaceWebhookRequest,
     ) -> Result<SetWorkspaceWebhookResponse> {
-        let path = format!("/enterprise/workspaces/{}/webhooks", workspace_id.as_ref());
+        let path = format!(
+            "/enterprise/workspaces/{}/webhooks",
+            path_id(workspace_id.as_ref())?
+        );
         let response = self.client.put(&path, &request).await?;
         Ok(response.json().await?)
     }
@@ -232,7 +276,10 @@ impl<'a> WorkspacesResource<'a> {
         &self,
         workspace_id: impl AsRef<str>,
     ) -> Result<Vec<WorkspaceWebhookConfig>> {
-        let path = format!("/enterprise/workspaces/{}/webhooks", workspace_id.as_ref());
+        let path = format!(
+            "/enterprise/workspaces/{}/webhooks",
+            path_id(workspace_id.as_ref())?
+        );
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
     }
@@ -242,9 +289,12 @@ impl<'a> WorkspacesResource<'a> {
         workspace_id: impl AsRef<str>,
         webhook_id: Option<impl AsRef<str>>,
     ) -> Result<()> {
-        let mut path = format!("/enterprise/workspaces/{}/webhooks", workspace_id.as_ref());
+        let mut path = format!(
+            "/enterprise/workspaces/{}/webhooks",
+            path_id(workspace_id.as_ref())?
+        );
         if let Some(id) = webhook_id {
-            path.push_str(&format!("?webhookId={}", id.as_ref()));
+            path.push_str(&format!("?webhookId={}", urlencoding::encode(id.as_ref())));
         }
         self.client.delete(&path).await?;
         Ok(())
@@ -256,9 +306,9 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<WorkspaceWebhookTestResult> {
         let path = format!(
             "/enterprise/workspaces/{}/webhooks/test",
-            workspace_id.as_ref()
+            path_id(workspace_id.as_ref())?
         );
-        let response = self.client.post(&path, &()).await?;
+        let response = self.client.post_empty(&path).await?;
         Ok(response.json().await?)
     }
 
@@ -267,7 +317,10 @@ impl<'a> WorkspacesResource<'a> {
         workspace_id: impl AsRef<str>,
         reason: Option<impl Into<String>>,
     ) -> Result<SuspendWorkspaceResponse> {
-        let path = format!("/enterprise/workspaces/{}/suspend", workspace_id.as_ref());
+        let path = format!(
+            "/enterprise/workspaces/{}/suspend",
+            path_id(workspace_id.as_ref())?
+        );
         let request = SuspendWorkspaceRequest {
             reason: reason.map(|r| r.into()),
         };
@@ -276,8 +329,11 @@ impl<'a> WorkspacesResource<'a> {
     }
 
     pub async fn resume(&self, workspace_id: impl AsRef<str>) -> Result<ResumeWorkspaceResponse> {
-        let path = format!("/enterprise/workspaces/{}/resume", workspace_id.as_ref());
-        let response = self.client.post(&path, &()).await?;
+        let path = format!(
+            "/enterprise/workspaces/{}/resume",
+            path_id(workspace_id.as_ref())?
+        );
+        let response = self.client.post_empty(&path).await?;
         Ok(response.json().await?)
     }
 
@@ -301,8 +357,8 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<SetCustomDomainResponse> {
         let path = format!(
             "/enterprise/workspaces/{}/pages/{}/domain",
-            workspace_id.as_ref(),
-            page_id.as_ref()
+            path_id(workspace_id.as_ref())?,
+            path_id(page_id.as_ref())?
         );
         let request = SetCustomDomainRequest {
             domain: domain.into(),
@@ -318,7 +374,7 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<Invitation> {
         let path = format!(
             "/enterprise/workspaces/{}/invitations",
-            workspace_id.as_ref()
+            path_id(workspace_id.as_ref())?
         );
         let response = self.client.post(&path, &request).await?;
         Ok(response.json().await?)
@@ -327,7 +383,7 @@ impl<'a> WorkspacesResource<'a> {
     pub async fn list_invitations(&self, workspace_id: impl AsRef<str>) -> Result<Vec<Invitation>> {
         let path = format!(
             "/enterprise/workspaces/{}/invitations",
-            workspace_id.as_ref()
+            path_id(workspace_id.as_ref())?
         );
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
@@ -340,15 +396,18 @@ impl<'a> WorkspacesResource<'a> {
     ) -> Result<CancelInvitationResponse> {
         let path = format!(
             "/enterprise/workspaces/{}/invitations/{}",
-            workspace_id.as_ref(),
-            invite_id.as_ref()
+            path_id(workspace_id.as_ref())?,
+            path_id(invite_id.as_ref())?
         );
         let response = self.client.delete(&path).await?;
         Ok(response.json().await?)
     }
 
     pub async fn get_quota(&self, workspace_id: impl AsRef<str>) -> Result<QuotaSettings> {
-        let path = format!("/enterprise/workspaces/{}/quota", workspace_id.as_ref());
+        let path = format!(
+            "/enterprise/workspaces/{}/quota",
+            path_id(workspace_id.as_ref())?
+        );
         let response = self.client.get(&path, &[]).await?;
         Ok(response.json().await?)
     }
@@ -358,7 +417,10 @@ impl<'a> WorkspacesResource<'a> {
         workspace_id: impl AsRef<str>,
         request: UpdateQuotaRequest,
     ) -> Result<QuotaSettings> {
-        let path = format!("/enterprise/workspaces/{}/quota", workspace_id.as_ref());
+        let path = format!(
+            "/enterprise/workspaces/{}/quota",
+            path_id(workspace_id.as_ref())?
+        );
         let response = self.client.put(&path, &request).await?;
         Ok(response.json().await?)
     }
@@ -390,14 +452,14 @@ impl<'a> EnterpriseWebhooksResource<'a> {
     }
 
     pub async fn test(&self) -> Result<EnterpriseWebhookTestResult> {
-        let response = self.client.post("/enterprise/webhooks/test", &()).await?;
+        let response = self.client.post_empty("/enterprise/webhooks/test").await?;
         Ok(response.json().await?)
     }
 
     pub async fn rotate_secret(&self) -> Result<EnterpriseWebhook> {
         let response = self
             .client
-            .post("/enterprise/webhooks/rotate-secret", &())
+            .post_empty("/enterprise/webhooks/rotate-secret")
             .await?;
         Ok(response.json().await?)
     }
@@ -512,11 +574,7 @@ impl<'a> EnterpriseCreditsResource<'a> {
         Ok(response.json().await?)
     }
 
-    pub async fn deposit(
-        &self,
-        amount: i64,
-        description: Option<&str>,
-    ) -> Result<PoolCredits> {
+    pub async fn deposit(&self, amount: i64, description: Option<&str>) -> Result<PoolCredits> {
         let request = DepositCreditsRequest {
             amount,
             description: description.map(|s| s.to_string()),
@@ -597,7 +655,13 @@ impl<'a> EnterpriseResource<'a> {
         verification_id: Option<&str>,
     ) -> Result<VerificationDocumentUploadResponse> {
         let filename = filename.into();
-        let mime = match filename.rsplit('.').next().unwrap_or("").to_lowercase().as_str() {
+        let mime = match filename
+            .rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_lowercase()
+            .as_str()
+        {
             "jpg" | "jpeg" => "image/jpeg",
             "png" => "image/png",
             "gif" => "image/gif",
@@ -606,25 +670,28 @@ impl<'a> EnterpriseResource<'a> {
             _ => "application/octet-stream",
         };
 
-        let file_part = multipart::Part::bytes(file_bytes)
-            .file_name(filename)
-            .mime_str(mime)
-            .map_err(|e| crate::error::Error::Network {
-                message: format!("invalid mime type: {}", e),
-            })?;
+        let build_form = || {
+            let file_part = multipart::Part::bytes(file_bytes.clone())
+                .file_name(filename.clone())
+                .mime_str(mime)
+                .map_err(|e| crate::error::Error::Network {
+                    message: format!("invalid mime type: {}", e),
+                })?;
 
-        let mut form = multipart::Form::new().part("file", file_part);
+            let mut form = multipart::Form::new().part("file", file_part);
 
-        if let Some(ws_id) = workspace_id {
-            form = form.text("workspaceId", ws_id.to_string());
-        }
-        if let Some(v_id) = verification_id {
-            form = form.text("verificationId", v_id.to_string());
-        }
+            if let Some(ws_id) = workspace_id {
+                form = form.text("workspaceId", ws_id.to_string());
+            }
+            if let Some(v_id) = verification_id {
+                form = form.text("verificationId", v_id.to_string());
+            }
+            Ok(form)
+        };
 
         let response = self
             .client
-            .post_multipart("/enterprise/verification-document/upload", form)
+            .post_multipart("/enterprise/verification-document/upload", build_form)
             .await?;
         Ok(response.json().await?)
     }

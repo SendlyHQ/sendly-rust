@@ -1,7 +1,7 @@
 use regex::Regex;
 use std::sync::OnceLock;
 
-use crate::client::Sendly;
+use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 use crate::models::{
     BatchList, BatchMessageResponse, BatchPreviewResponse, CancelScheduledMessageResponse,
@@ -109,11 +109,24 @@ impl<'a> Messages<'a> {
 
     /// Sends a WhatsApp message.
     ///
-    /// Requires a live API key and a `from` number with an active WhatsApp
-    /// connection (see `client.whatsapp().signup()`). Free-form `text` and
-    /// media only deliver inside an open 24-hour customer-service window —
-    /// outside it, send an approved `template` instead (check with
+    /// Requires the `sms:send` scope (not `whatsapp:write`), a live API key
+    /// and a `from` number with an active WhatsApp connection (see
+    /// `client.whatsapp().signup()`). WhatsApp is enabled per person (the
+    /// user who owns the API key, not the workspace); while it is off the API
+    /// responds 403 `whatsapp_not_enabled`. Free-form `text` and media only
+    /// deliver inside an open 24-hour customer-service window — outside it,
+    /// send an approved `template` instead (check with
     /// `client.whatsapp().window(from, to)`).
+    ///
+    /// A refused send is `whatsapp_send_failed`: a 422 when WhatsApp refused
+    /// the message, which is final (cached under the idempotency key and
+    /// replayed for 24 hours), or a 502 when WhatsApp couldn't be reached:
+    /// not sent, safe to send again (it is never cached, so send it under
+    /// the same idempotency key). A 409 `whatsapp_send_unconfirmed`
+    /// (`Error::Api`) means the outcome is unknown: the message was marked
+    /// failed and refunded but may still be delivered, so check before
+    /// sending it again. It is cached under the idempotency key and the
+    /// client does not retry it. No send returns 503 `whatsapp_unavailable`.
     ///
     /// # Arguments
     ///
@@ -194,9 +207,9 @@ impl<'a> Messages<'a> {
         let has_media = request.media_urls.as_ref().map_or(false, |u| !u.is_empty());
         let has_text = request.text.as_ref().map_or(false, |t| !t.is_empty());
         if !has_text && !has_media && request.template.is_none() {
-            return Err(Error::Validation {
-                message: "Provide 'text', 'media_urls', or 'template'".to_string(),
-            });
+            return Err(Error::validation(
+                "Provide 'text', 'media_urls', or 'template'",
+            ));
         }
 
         let response = self
@@ -305,14 +318,12 @@ impl<'a> Messages<'a> {
         validate_phone(&request.to)?;
         let has_text = request.text.as_ref().map_or(false, |t| !t.is_empty());
         if has_text == request.card.is_some() {
-            return Err(Error::Validation {
-                message: "Provide exactly one of 'text' or 'card'".to_string(),
-            });
+            return Err(Error::validation("Provide exactly one of 'text' or 'card'"));
         }
         if request.card.is_some() && request.suggestions.is_some() {
-            return Err(Error::Validation {
-                message: "'suggestions' ride on text messages — put card buttons in the card's suggestions".to_string(),
-            });
+            return Err(Error::validation(
+                "'suggestions' ride on text messages — put card buttons in the card's suggestions",
+            ));
         }
 
         let response = self
@@ -435,14 +446,14 @@ impl<'a> Messages<'a> {
         options: IdempotentRequestOptions,
     ) -> Result<GroupMessageResponse> {
         if request.to.len() < 2 {
-            return Err(Error::Validation {
-                message: "Group messaging requires at least 2 recipients".to_string(),
-            });
+            return Err(Error::validation(
+                "Group messaging requires at least 2 recipients",
+            ));
         }
         if request.to.len() > 8 {
-            return Err(Error::Validation {
-                message: "Group messaging supports at most 8 recipients".to_string(),
-            });
+            return Err(Error::validation(
+                "Group messaging supports at most 8 recipients",
+            ));
         }
         for recipient in &request.to {
             validate_phone(recipient)?;
@@ -450,9 +461,7 @@ impl<'a> Messages<'a> {
         let has_media = request.media_urls.as_ref().map_or(false, |u| !u.is_empty());
         let has_text = request.text.as_ref().map_or(false, |t| !t.is_empty());
         if !has_text && !has_media {
-            return Err(Error::Validation {
-                message: "Provide 'text' or 'media_urls'".to_string(),
-            });
+            return Err(Error::validation("Provide 'text' or 'media_urls'"));
         }
 
         let response = self
@@ -502,19 +511,14 @@ impl<'a> Messages<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn enhance(
-        &self,
-        request: EnhanceMessageRequest,
-    ) -> Result<EnhanceMessageResponse> {
+    pub async fn enhance(&self, request: EnhanceMessageRequest) -> Result<EnhanceMessageResponse> {
         let has_text = request.text.as_ref().map_or(false, |t| !t.is_empty());
         let has_type = request
             .message_type
             .as_ref()
             .map_or(false, |t| !t.is_empty());
         if !has_text && !has_type {
-            return Err(Error::Validation {
-                message: "Provide 'text' or 'message_type'".to_string(),
-            });
+            return Err(Error::validation("Provide 'text' or 'message_type'"));
         }
 
         let response = self.client.post("/ai/enhance", &request).await?;
@@ -579,13 +583,11 @@ impl<'a> Messages<'a> {
     /// ```
     pub async fn get(&self, id: &str) -> Result<Message> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Message ID is required".to_string(),
-            });
+            return Err(Error::validation("Message ID is required"));
         }
 
         // URL encode the ID to prevent path injection
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/messages/{}", encoded_id);
         let response = self.client.get(&path, &[]).await?;
         let message: Message = response.json().await?;
@@ -671,27 +673,22 @@ impl<'a> Messages<'a> {
 
 fn validate_phone(phone: &str) -> Result<()> {
     if !phone_regex().is_match(phone) {
-        return Err(Error::Validation {
-            message: "Invalid phone number format. Use E.164 format (e.g., +15551234567)"
-                .to_string(),
-        });
+        return Err(Error::validation(
+            "Invalid phone number format. Use E.164 format (e.g., +15551234567)",
+        ));
     }
     Ok(())
 }
 
 fn validate_text(text: &str) -> Result<()> {
     if text.is_empty() {
-        return Err(Error::Validation {
-            message: "Message text is required".to_string(),
-        });
+        return Err(Error::validation("Message text is required"));
     }
-    if text.len() > MAX_TEXT_LENGTH {
-        return Err(Error::Validation {
-            message: format!(
-                "Message text exceeds maximum length ({} characters)",
-                MAX_TEXT_LENGTH
-            ),
-        });
+    if text.chars().count() > MAX_TEXT_LENGTH {
+        return Err(Error::validation(format!(
+            "Message text exceeds maximum length ({} characters)",
+            MAX_TEXT_LENGTH
+        )));
     }
     Ok(())
 }
@@ -771,9 +768,7 @@ impl<'a> Messages<'a> {
         validate_text(&request.text)?;
 
         if request.scheduled_at.is_empty() {
-            return Err(Error::Validation {
-                message: "scheduled_at is required".to_string(),
-            });
+            return Err(Error::validation("scheduled_at is required"));
         }
 
         let response = self
@@ -844,12 +839,10 @@ impl<'a> Messages<'a> {
     /// ```
     pub async fn get_scheduled(&self, id: &str) -> Result<ScheduledMessage> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Scheduled message ID is required".to_string(),
-            });
+            return Err(Error::validation("Scheduled message ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/messages/scheduled/{}", encoded_id);
         let response = self.client.get(&path, &[]).await?;
         let scheduled: ScheduledMessage = response.json().await?;
@@ -878,12 +871,10 @@ impl<'a> Messages<'a> {
     /// ```
     pub async fn cancel_scheduled(&self, id: &str) -> Result<CancelScheduledMessageResponse> {
         if id.is_empty() {
-            return Err(Error::Validation {
-                message: "Scheduled message ID is required".to_string(),
-            });
+            return Err(Error::validation("Scheduled message ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(id);
+        let encoded_id = path_id(id)?;
         let path = format!("/messages/scheduled/{}", encoded_id);
         let response = self.client.delete(&path).await?;
         let result: CancelScheduledMessageResponse = response.json().await?;
@@ -973,19 +964,15 @@ impl<'a> Messages<'a> {
         options: IdempotentRequestOptions,
     ) -> Result<BatchMessageResponse> {
         if request.messages.is_empty() {
-            return Err(Error::Validation {
-                message: "Messages array is required".to_string(),
-            });
+            return Err(Error::validation("Messages array is required"));
         }
 
         // Validate each message
         for (i, msg) in request.messages.iter().enumerate() {
-            validate_phone(&msg.to).map_err(|_| Error::Validation {
-                message: format!("Invalid phone number at index {}", i),
-            })?;
-            validate_text(&msg.text).map_err(|_| Error::Validation {
-                message: format!("Invalid message text at index {}", i),
-            })?;
+            validate_phone(&msg.to)
+                .map_err(|_| Error::validation(format!("Invalid phone number at index {}", i)))?;
+            validate_text(&msg.text)
+                .map_err(|_| Error::validation(format!("Invalid message text at index {}", i)))?;
         }
 
         // The batch endpoint dedupes header-less retries server-side by hashing
@@ -1026,12 +1013,10 @@ impl<'a> Messages<'a> {
     /// ```
     pub async fn get_batch(&self, batch_id: &str) -> Result<BatchMessageResponse> {
         if batch_id.is_empty() {
-            return Err(Error::Validation {
-                message: "Batch ID is required".to_string(),
-            });
+            return Err(Error::validation("Batch ID is required"));
         }
 
-        let encoded_id = urlencoding::encode(batch_id);
+        let encoded_id = path_id(batch_id)?;
         let path = format!("/messages/batch/{}", encoded_id);
         let response = self.client.get(&path, &[]).await?;
         let result: BatchMessageResponse = response.json().await?;
@@ -1108,19 +1093,15 @@ impl<'a> Messages<'a> {
     /// ```
     pub async fn preview_batch(&self, request: SendBatchRequest) -> Result<BatchPreviewResponse> {
         if request.messages.is_empty() {
-            return Err(Error::Validation {
-                message: "Messages array is required".to_string(),
-            });
+            return Err(Error::validation("Messages array is required"));
         }
 
         // Validate each message
         for (i, msg) in request.messages.iter().enumerate() {
-            validate_phone(&msg.to).map_err(|_| Error::Validation {
-                message: format!("Invalid phone number at index {}", i),
-            })?;
-            validate_text(&msg.text).map_err(|_| Error::Validation {
-                message: format!("Invalid message text at index {}", i),
-            })?;
+            validate_phone(&msg.to)
+                .map_err(|_| Error::validation(format!("Invalid phone number at index {}", i)))?;
+            validate_text(&msg.text)
+                .map_err(|_| Error::validation(format!("Invalid message text at index {}", i)))?;
         }
 
         let response = self
