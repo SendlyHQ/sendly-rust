@@ -109,8 +109,8 @@ calls too. `send_batch` carries one only when you pass it, because the API
 already deduplicates a batch by its contents. The API deduplicates on sends
 (SMS, MMS, group, scheduled, WhatsApp, RCS and conversation replies), batches,
 draft approval (which sends), starting a verification, credit transfers, number
-purchases, workspace provisioning (single and bulk), enterprise credit deposits
-and transfers, WhatsApp signup and template creation, and the RCS and voice
+purchases, workspace provisioning (single and bulk), enterprise credit
+transfers, WhatsApp signup and template creation, and the RCS and voice
 writes, so a retry of one of those that already reached the API is not executed
 twice. Other writes, such as creating a webhook or a contact, can run twice if
 a timed-out attempt had already reached the API.
@@ -2336,7 +2336,7 @@ println!("{} credits across {} workspaces", credits.total_balance, credits.works
 `client.enterprise()` also exposes `get_account()`, `generate_business_page()`
 and `upload_verification_document()`, plus four more sub-resources:
 `settings()` (auto top-up), `billing()` (per-workspace breakdown) and
-`credits()` (the pool balance and deposits). On
+`credits()` (the pool balance). On
 `workspaces()` there is also verification (`submit_verification`,
 `resubmit_verification`, `inherit_verification`, `get_verification`),
 `get_credits`, `list_keys`, opt-in pages, per-workspace webhooks, `suspend` /
