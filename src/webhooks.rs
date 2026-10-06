@@ -164,6 +164,14 @@ pub enum WebhookEventType {
     ShortCodeFiled,
     #[serde(rename = "short_code.live")]
     ShortCodeLive,
+    #[serde(rename = "short_code.suspended")]
+    ShortCodeSuspended,
+    #[serde(rename = "short_code.reactivated")]
+    ShortCodeReactivated,
+    #[serde(rename = "short_code.payment_succeeded")]
+    ShortCodePaymentSucceeded,
+    #[serde(rename = "short_code.payment_failed")]
+    ShortCodePaymentFailed,
     /// An event type this SDK version does not know about.
     #[serde(untagged)]
     Unknown(String),
