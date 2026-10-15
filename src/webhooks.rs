@@ -168,6 +168,8 @@ pub enum WebhookEventType {
     ShortCodeSuspended,
     #[serde(rename = "short_code.reactivated")]
     ShortCodeReactivated,
+    #[serde(rename = "short_code.cancelled")]
+    ShortCodeCancelled,
     #[serde(rename = "short_code.payment_succeeded")]
     ShortCodePaymentSucceeded,
     #[serde(rename = "short_code.payment_failed")]
