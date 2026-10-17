@@ -4692,7 +4692,7 @@ impl SendWhatsAppMessageRequest {
 }
 
 /// What kind of WhatsApp message was sent.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum WhatsAppMessageKind {
@@ -4702,7 +4702,9 @@ pub enum WhatsAppMessageKind {
     Media,
     /// Approved template.
     Template,
-    /// A kind this SDK version doesn't know yet.
+    /// A kind this SDK version doesn't know yet, or a send the API accepted
+    /// without recording its details.
+    #[default]
     #[serde(other)]
     Unknown,
 }
@@ -4734,7 +4736,7 @@ pub struct WhatsAppMessageTemplateInfo {
 }
 
 /// WhatsApp-specific details on a sent message.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct WhatsAppMessageDetails {
     /// What was sent: free-form text, media, or a template.
     pub kind: WhatsAppMessageKind,
@@ -4781,7 +4783,11 @@ pub struct WhatsAppMessage {
     /// slot back.
     #[serde(default, alias = "creditsUsed")]
     pub credits_used: i32,
-    /// WhatsApp-specific details.
+    /// WhatsApp-specific details. When WhatsApp accepted the message but
+    /// recording it failed, the API sends none: `kind` is then `Unknown` and
+    /// `created_at` is `None`. That message is in flight and was charged, so
+    /// don't send it again.
+    #[serde(default)]
     pub whatsapp: WhatsAppMessageDetails,
     /// ISO 8601 timestamp when the message was created.
     #[serde(default, alias = "createdAt")]

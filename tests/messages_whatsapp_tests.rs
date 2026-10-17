@@ -371,3 +371,40 @@ async fn test_send_whatsapp_with_a_new_kind_or_category_still_decodes() {
     assert_eq!(template.name, "order_shipped");
     assert_eq!(template.category, WhatsAppMessageCategory::Unknown);
 }
+
+#[tokio::test]
+async fn test_send_whatsapp_accepted_but_not_fully_recorded() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": "msg_wa_rec",
+            "channel": "whatsapp",
+            "message_format": "whatsapp",
+            "messageFormat": "whatsapp",
+            "to": "+15551234567",
+            "from": "+15559876543",
+            "status": "sent",
+            "direction": "outbound",
+            "segments": 1,
+            "metadata": {}
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let message = client
+        .messages()
+        .send_whatsapp(
+            SendWhatsAppMessageRequest::new("+15551234567", "+15559876543").with_text("Hi"),
+        )
+        .await
+        .expect("a send WhatsApp accepted must decode, or the caller sends it twice");
+
+    assert_eq!(message.id, "msg_wa_rec");
+    assert_eq!(message.status, MessageStatus::Sent);
+    assert_eq!(message.whatsapp.kind, WhatsAppMessageKind::Unknown);
+    assert!(message.whatsapp.message_id.is_none());
+    assert!(message.created_at.is_none());
+}
