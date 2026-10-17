@@ -1,5 +1,13 @@
 # sendly (Rust)
 
+## 6.0.1
+
+The crate ships this with fleet release 4.4.0.
+
+### Patch Changes
+
+- A WhatsApp send that WhatsApp accepted but Sendly couldn't fully record answers 201 without `whatsapp` or `createdAt`, and `send_whatsapp` failed to decode it. It now decodes, with `whatsapp.kind` set to `WhatsAppMessageKind::Unknown` and `created_at` set to `None`; `WhatsAppMessageKind` and `WhatsAppMessageDetails` now implement `Default`. That message is in flight and was charged, so don't send it again. (WhatsApp `fallback_to_sms` isn't in the Rust SDK yet.)
+
 ## 6.0.0
 
 The crate ships this with fleet release 4.3.0. It takes a major because several fixes change a public type or enum; each one below says what to edit. Every other change is additive. Each fix was checked against the API handler it calls.
