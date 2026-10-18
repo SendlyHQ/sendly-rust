@@ -93,6 +93,7 @@ pub enum SenderType {
 
 /// An SMS message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Message {
     /// Unique message identifier.
     pub id: String,
@@ -170,6 +171,13 @@ pub struct Message {
     /// AI classification metadata for inbound messages.
     #[serde(default, rename = "aiMetadata")]
     pub ai_metadata: Option<AiMetadata>,
+    /// On a WhatsApp message sent with `fallback_to_sms`, what happened to
+    /// its SMS fallback.
+    #[serde(default)]
+    pub fallback: Option<WhatsAppSmsFallback>,
+    /// On an SMS fallback, the id of the WhatsApp message it replaced.
+    #[serde(default, alias = "fallbackOf")]
+    pub fallback_of: Option<String>,
 }
 
 fn default_segments() -> i32 {
@@ -4645,6 +4653,16 @@ pub struct SendWhatsAppMessageRequest {
     /// Custom JSON metadata to attach to the message (max 4KB).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Whether a message WhatsApp can't deliver goes as an SMS from the same
+    /// number, billed as an SMS: when the 24-hour window is closed, when
+    /// WhatsApp refuses it, or when WhatsApp reports it undeliverable later.
+    /// The API defaults to `false` when omitted. The number must be able to
+    /// send SMS to the recipient (US and Canada only), or the send is refused
+    /// with 403 `sms_fallback_unavailable`. Marketing and authentication
+    /// templates, and media without a caption, are refused with 422
+    /// `sms_fallback_not_supported`. See [`WhatsAppMessage::fallback`].
+    #[serde(skip_serializing_if = "Option::is_none", rename = "fallbackToSms")]
+    pub fallback_to_sms: Option<bool>,
 }
 
 impl SendWhatsAppMessageRequest {
@@ -4659,6 +4677,7 @@ impl SendWhatsAppMessageRequest {
             media_urls: None,
             template: None,
             metadata: None,
+            fallback_to_sms: None,
         }
     }
 
@@ -4688,6 +4707,100 @@ impl SendWhatsAppMessageRequest {
     ) -> Self {
         self.metadata = Some(metadata);
         self
+    }
+
+    /// Turns the SMS fallback on (`true`) or explicitly off (`false`).
+    pub fn with_fallback_to_sms(mut self, fallback_to_sms: bool) -> Self {
+        self.fallback_to_sms = Some(fallback_to_sms);
+        self
+    }
+}
+
+/// Why a WhatsApp message fell back to SMS.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum WhatsAppSmsFallbackReason {
+    /// The 24-hour customer-service window was closed.
+    WindowClosed,
+    /// WhatsApp refused the message when it was sent.
+    WhatsappRefused,
+    /// WhatsApp reported the message undeliverable after accepting it.
+    WhatsappFailed,
+    /// A reason this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Where the SMS fallback of a WhatsApp message stands.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum WhatsAppSmsFallbackStatus {
+    /// WhatsApp's outcome isn't known yet.
+    #[default]
+    Pending,
+    /// The SMS went.
+    Sent,
+    /// The SMS carrier refused the SMS, or credits ran out.
+    Failed,
+    /// The SMS could no longer be sent from this number.
+    Unavailable,
+    /// The WhatsApp failure isn't one an SMS fixes, such as the recipient
+    /// opting out.
+    Skipped,
+    /// A status this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+/// The SMS fallback of a WhatsApp message sent with
+/// [`SendWhatsAppMessageRequest::with_fallback_to_sms`]`(true)`.
+///
+/// Read it from [`WhatsAppMessage::fallback`], or from [`Message::fallback`]
+/// on a WhatsApp message from `messages().get()` or `messages().list()`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct WhatsAppSmsFallback {
+    /// Always "sms".
+    #[serde(default = "default_sms_channel")]
+    pub channel: String,
+    /// Where the fallback stands.
+    #[serde(default)]
+    pub status: WhatsAppSmsFallbackStatus,
+    /// What made the message fall back.
+    #[serde(default)]
+    pub reason: Option<WhatsAppSmsFallbackReason>,
+    /// The SMS message's id, once it exists. Fetch it with
+    /// `messages().get()`; its [`Message::fallback_of`] is the WhatsApp
+    /// message's id.
+    #[serde(default, alias = "messageId")]
+    pub message_id: Option<String>,
+    /// Credits charged for the SMS.
+    #[serde(default, alias = "creditsUsed")]
+    pub credits_used: Option<i32>,
+    /// Why the SMS didn't go, in plain English.
+    #[serde(default)]
+    pub error: Option<String>,
+    /// Template parts with no SMS form, such as `quick_replies` or
+    /// `header_media`.
+    #[serde(default, alias = "contentDropped")]
+    pub content_dropped: Option<Vec<String>>,
+}
+
+fn default_sms_channel() -> String {
+    "sms".to_string()
+}
+
+impl WhatsAppSmsFallback {
+    /// Returns true while WhatsApp's outcome isn't known yet.
+    pub fn is_pending(&self) -> bool {
+        self.status == WhatsAppSmsFallbackStatus::Pending
+    }
+
+    /// Returns true when the SMS went.
+    pub fn is_sent(&self) -> bool {
+        self.status == WhatsAppSmsFallbackStatus::Sent
     }
 }
 
@@ -4751,6 +4864,7 @@ pub struct WhatsAppMessageDetails {
 
 /// A sent WhatsApp message.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct WhatsAppMessage {
     /// Unique message identifier.
     pub id: String,
@@ -4795,6 +4909,22 @@ pub struct WhatsAppMessage {
     /// Custom JSON metadata attached to the message.
     #[serde(default)]
     pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Present when the send asked for
+    /// [`with_fallback_to_sms`](SendWhatsAppMessageRequest::with_fallback_to_sms)`(true)`.
+    /// When WhatsApp couldn't take the message and it went as an SMS,
+    /// `status` is `Failed` and `fallback.status` is `Sent` (check with
+    /// [`fell_back`](Self::fell_back)).
+    #[serde(default)]
+    pub fallback: Option<WhatsAppSmsFallback>,
+}
+
+impl WhatsAppMessage {
+    /// Returns true when the message went as an SMS instead.
+    pub fn fell_back(&self) -> bool {
+        self.fallback
+            .as_ref()
+            .is_some_and(WhatsAppSmsFallback::is_sent)
+    }
 }
 
 /// A tappable chip that sends a reply back when tapped.

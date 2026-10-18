@@ -703,7 +703,7 @@ impl<'a> VoiceNumbersResource<'a> {
     /// switches voice on and [`VoiceMode::None`] switches it off, while
     /// `voice_enabled(false)` switches it off whatever the mode. Turning voice
     /// on, a mode alone included, connects the number for calls before the
-    /// change is saved: 502 `voice_attach_failed` when that fails (try again),
+    /// change is saved: 503 `voice_attach_failed` when that fails (try again),
     /// 503 `voice_unavailable` when numbers can't be switched on yet. `agent`
     /// mode needs an agent (400 `agent_required`, 404 `agent_not_found`) that
     /// is switched on (409 `agent_disabled`).
@@ -1114,7 +1114,7 @@ impl<'a> VoicesResource<'a> {
 /// `invalid_address`, `e911_not_applicable`) and 422 `invalid_address` are
 /// [`Error::Validation`]; 429s are [`Error::RateLimit`]; everything else
 /// (403 `forbidden` / `live_key_required`, 409 `agent_disabled` /
-/// `agent_limit` / `agent_in_use`, 502 `voice_attach_failed` /
+/// `agent_limit` / `agent_in_use`, 503 `voice_attach_failed` /
 /// `carrier_refused`, 503 `voice_unavailable`) is [`Error::Api`] with `code`
 /// set.
 ///

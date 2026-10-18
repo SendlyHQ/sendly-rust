@@ -120,13 +120,28 @@ impl<'a> Messages<'a> {
     ///
     /// A refused send is `whatsapp_send_failed`: a 422 when WhatsApp refused
     /// the message, which is final (cached under the idempotency key and
-    /// replayed for 24 hours), or a 502 when WhatsApp couldn't be reached:
+    /// replayed for 24 hours), or a 503 when WhatsApp couldn't be reached:
     /// not sent, safe to send again (it is never cached, so send it under
     /// the same idempotency key). A 409 `whatsapp_send_unconfirmed`
     /// (`Error::Api`) means the outcome is unknown: the message was marked
     /// failed and refunded but may still be delivered, so check before
     /// sending it again. It is cached under the idempotency key and the
     /// client does not retry it. No send returns 503 `whatsapp_unavailable`.
+    ///
+    /// With [`with_fallback_to_sms`](SendWhatsAppMessageRequest::with_fallback_to_sms)`(true)`,
+    /// a message WhatsApp can't deliver (the window is closed, WhatsApp
+    /// refuses it, or reports it undeliverable later) goes as an SMS from the
+    /// same number, billed as an SMS, and [`WhatsAppMessage::fallback`] says
+    /// what happened. When the SMS went in place of the WhatsApp message, the
+    /// send succeeds with `status` `Failed`, `fallback.status` `Sent` and
+    /// [`WhatsAppMessage::fell_back`] true. When the SMS couldn't go either,
+    /// the 422 `whatsapp_window_closed` or `whatsapp_send_failed` body carries
+    /// the `fallback` (and, for a closed window, the WhatsApp message's `id`);
+    /// read it with `err.body()`. The number must already be able to send SMS
+    /// to the recipient (US and Canada only), or the send is refused with 403
+    /// `sms_fallback_unavailable` (`Error::Api`). Marketing and
+    /// authentication templates, and media without a caption, are refused
+    /// with 422 `sms_fallback_not_supported` (`Error::Validation`).
     ///
     /// # Arguments
     ///
@@ -161,6 +176,16 @@ impl<'a> Messages<'a> {
     ///
     /// println!("Kind: {:?}", message.whatsapp.kind);
     /// println!("Credits: {}", message.credits_used);
+    ///
+    /// // Fall back to SMS when WhatsApp can't deliver
+    /// let message = client.messages().send_whatsapp(
+    ///     SendWhatsAppMessageRequest::new("+15551234567", "+15559876543")
+    ///         .with_text("Your table is ready!")
+    ///         .with_fallback_to_sms(true),
+    /// ).await?;
+    /// if message.fell_back() {
+    ///     println!("Sent as SMS: {:?}", message.fallback.and_then(|f| f.message_id));
+    /// }
     /// # Ok(())
     /// # }
     /// ```

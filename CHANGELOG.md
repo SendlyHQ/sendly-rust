@@ -1,5 +1,21 @@
 # sendly (Rust)
 
+## 7.0.0
+
+### Major Changes
+
+- **`Message` and `WhatsAppMessage` gained fields** (listed under Minor Changes) **and are now `#[non_exhaustive]`.** Both are response types the API returns; code that built one with a struct literal must deserialize it instead. Fields the API adds to them later are no longer breaking changes.
+
+  **The edit:** add `fallback: None` to a `WhatsAppMessage` literal, and `fallback: None, fallback_of: None` to a `Message` literal.
+
+### Minor Changes
+
+- **WhatsApp to SMS fallback.** `SendWhatsAppMessageRequest::with_fallback_to_sms(true)` (the new `fallback_to_sms` field) sends `fallbackToSms` with `messages().send_whatsapp()` and `send_whatsapp_with_options()`; it is left out when unset, and the API defaults to `false`. When WhatsApp can't deliver the message (the 24-hour window is closed, WhatsApp refuses it, or reports it undeliverable later), it goes as an SMS from the same number, billed as an SMS. The new `WhatsAppSmsFallback` (`channel`, `status`, `reason`, `message_id`, `credits_used`, `error`, `content_dropped`, with `is_pending()` and `is_sent()`) says what happened, with the enums `WhatsAppSmsFallbackStatus` (`Pending`, `Sent`, `Failed`, `Unavailable`, `Skipped`) and `WhatsAppSmsFallbackReason` (`WindowClosed`, `WhatsappRefused`, `WhatsappFailed`), each with an `Unknown` fallback; all three are `#[non_exhaustive]`. It is `WhatsAppMessage::fallback`, and `WhatsAppMessage::fell_back()` is true when the SMS went: the send then succeeds with `status` `Failed` and `fallback.status` `Sent`. `Message` gains `fallback` (on a WhatsApp message from `messages().get()` or `messages().list()`) and `fallback_of` (on the SMS, the id of the WhatsApp message it replaced). The number must already be able to send SMS to the recipient (US and Canada), or the API answers 403 `sms_fallback_unavailable` (`Error::Api`); marketing and authentication templates, and media without a caption, get 422 `sms_fallback_not_supported` (`Error::Validation`). `Error::code()` returns both. When neither leg could go, the 422 `whatsapp_window_closed` or `whatsapp_send_failed` body carries the `fallback`; read it with `Error::body()`.
+
+### Patch Changes
+
+- Docs give 503, the status the API sends, instead of 502 for the WhatsApp and voice errors raised when WhatsApp or the carrier couldn't be reached: `whatsapp_send_failed` when the message never reached WhatsApp (not sent, and safe to send again with the same idempotency key), the WhatsApp signup, profile, conversational-components and calling errors, `voice_attach_failed` and `carrier_refused`. The API answers every 502 as a 503 with a `Sendly-Upstream-Status: 502` header. Nothing changes at runtime.
+
 ## 6.0.1
 
 The crate ships this with fleet release 4.4.0.

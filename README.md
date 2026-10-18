@@ -22,7 +22,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sendly = "6.0.1"
+sendly = "7.0.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -1217,7 +1217,7 @@ module.
 
 ## WhatsApp
 
-Connect a number you own to WhatsApp ($19 one-time, no monthly fee), create
+Connect a number you own to WhatsApp (free to connect, no monthly fee), create
 Meta-reviewed templates, and send. Free-form text and media only deliver inside
 an open 24-hour customer-service window; an approved template works anytime.
 
@@ -1238,10 +1238,7 @@ workspace. While it is off, sends return 403 `whatsapp_not_enabled` and the
 After the person behind the connect URL links their WhatsApp Business
 Account, the signup moves to `Registering`, then `Active`. Activation usually
 takes a few minutes but can take hours. If it hasn't finished about 6 hours
-after the session began, the session fails with `registration_timeout` and
-the fee is refunded. If the connection fails, the $19 fee is refunded
-automatically; once a number has connected, a later disconnect gets nothing
-back.
+after the session began, the session fails with `registration_timeout`.
 
 Pricing: free-form text or media inside the 24-hour window costs 1 credit
 each for the first 1,000 per sending number per calendar month (UTC), then
@@ -1317,21 +1314,102 @@ if window.open {
 }
 ```
 
+### SMS fallback
+
+With `with_fallback_to_sms(true)`, a WhatsApp message that can't be delivered
+goes as an SMS from the same number instead. `fallback` (a
+`WhatsAppSmsFallback`) says what happened. It is off unless you set it.
+
+```rust
+use sendly::{SendWhatsAppMessageRequest, WhatsAppSmsFallback};
+
+let request = SendWhatsAppMessageRequest::new("+14155550123", "+15125550188")
+    .with_text("Your table is ready!")
+    .with_fallback_to_sms(true);
+
+match client.messages().send_whatsapp(request).await {
+    Ok(message) => {
+        if let Some(fallback) = &message.fallback {
+            println!("{:?}", fallback.status); // Pending, Sent, Failed, Unavailable or Skipped
+            println!("{:?}", fallback.reason); // WindowClosed, WhatsappRefused or WhatsappFailed
+        }
+        // True when the SMS went instead (message.status is then MessageStatus::Failed)
+        if message.fell_back() {
+            if let Some(sms_id) = message.fallback.as_ref().and_then(|f| f.message_id.clone()) {
+                let sms = client.messages().get(&sms_id).await?;
+                println!("{:?}", sms.fallback_of); // the WhatsApp message's id
+            }
+        }
+    }
+    Err(err) if err.code() == Some("sms_fallback_unavailable") => {
+        // 403: this number can't send SMS to the recipient; nothing was sent
+    }
+    Err(err) if err.code() == Some("sms_fallback_not_supported") => {
+        // 422: the body's reason is marketing_template, authentication_template
+        // or media_without_caption
+        println!("{:?}", err.body().and_then(|b| b.get("reason")));
+    }
+    Err(err) => {
+        // 422 whatsapp_window_closed or whatsapp_send_failed: the SMS couldn't
+        // go either. A closed window also carries the WhatsApp message's id.
+        let fallback = err
+            .body()
+            .and_then(|body| body.get("fallback"))
+            .and_then(|f| serde_json::from_value::<WhatsAppSmsFallback>(f.clone()).ok());
+        println!("{:?}: {:?}", err.code(), fallback.and_then(|f| f.error));
+    }
+}
+```
+
+- It falls back when the 24-hour window is closed (the SMS goes at once:
+  free-form text and media go only within 24 hours of the customer's last
+  message, templates any time), when WhatsApp refuses the message, or when
+  WhatsApp reports it undeliverable later. Never after WhatsApp reports it
+  delivered or read, and at most once per message.
+- The number must already be able to send SMS to the recipient (a verified
+  toll-free number, or a local number on a 10DLC campaign, to a US or Canada
+  number), or the send is refused with 403 `sms_fallback_unavailable`
+  before anything is sent.
+- Marketing and authentication templates, and media without a caption, can't
+  fall back: 422 `sms_fallback_not_supported`. A utility template falls
+  back as its text header, body and footer with the variables filled in, and
+  its URL and phone buttons as `label: target`; quick replies are dropped and
+  listed in `fallback.content_dropped`.
+- Billing: the WhatsApp charge is refunded (a closed window is never charged)
+  and the SMS is billed as an SMS. A message that fell back at once comes
+  back with `status` `Failed`, `credits_used` 0 and `fallback.status` `Sent`; `fallback.credits_used` is
+  what the SMS cost.
+- No SMS goes on a 409 `whatsapp_send_unconfirmed` or a 503
+  `whatsapp_send_failed`. The status is `Unavailable` when SMS rules stop it
+  (the contact opted out, a promotional-looking text in the recipient's quiet
+  hours, restricted content), with the reason in `fallback.error`, and
+  `Skipped` for a WhatsApp error an SMS can't fix.
+- There is no time-based fallback: a message WhatsApp accepted but hasn't
+  delivered, for example to a phone that is off, stays `Pending`, and no SMS
+  goes unless WhatsApp later reports a failure.
+- `messages().get()` and `messages().list()` return the same fallback on the WhatsApp message, so check a
+  pending one later. The SMS carries `fallback_of`, the WhatsApp message's id.
+
+Guide: [Send WhatsApp with an SMS Fallback](https://sendly.live/docs/whatsapp/send-with-fallback).
+
 How the WhatsApp refusals arrive:
 
 - `signup().create()` answers 503 `whatsapp_unavailable` (`Error::Api`) when
-  connections are paused. Only signup returns it; no send does. Nothing is
-  charged; its body carries `retryAfter` (3600 seconds), read with
+  connections are paused. Only signup returns it; no send does. Its body
+  carries `retryAfter` (3600 seconds), read with
   `err.body()`, and the response a `Retry-After: 3600` header. It answers 429
   `whatsapp_signup_limit_reached` (`Error::RateLimit`, not retryable) after too
   many failed connections in 24 hours.
 - A send the carrier refuses is 422 `whatsapp_send_failed`
   (`Error::Validation`): final, do not retry; the API caches it under the
-  idempotency key and replays it for 24 hours. A send that could not reach
-  the carrier is 502 `whatsapp_send_failed` (`Error::Api`): not sent, safe to
-  send again. It is never cached and the client does not retry it, so send it
-  again under the same idempotency key; pass your own through
-  `send_whatsapp_with_options`. A failed send is refunded either way.
+  idempotency key and replays it for 24 hours. A send that never reached
+  WhatsApp is 503 `whatsapp_send_failed` (`Error::Api`): not sent, safe to
+  resend under the same idempotency key. It is never cached, and this client
+  does not retry it on its own, so send it again yourself under the same key:
+  pass one through `send_whatsapp_with_options` with
+  `IdempotentRequestOptions::new().idempotency_key(...)`. A failed send is
+  refunded either way. With `with_fallback_to_sms(true)`, a 422 means the SMS
+  couldn't go either; a 503 never falls back.
 - A send whose outcome is unknown is 409 `whatsapp_send_unconfirmed`
   (`Error::Api`): the message was marked failed and refunded, but it may still
   be delivered, so check before sending it again or it could arrive twice. It
@@ -1379,7 +1457,7 @@ client.whatsapp().senders().delete_profile_photo("+15125550188").await?;
 
 A photo that isn't a JPEG or PNG is 400 `whatsapp_profile_photo_invalid`
 (`Error::Validation`), one over 5 MB is 413 `whatsapp_profile_photo_too_large`
-(`Error::Api`), and 502 `whatsapp_profile_update_failed` means WhatsApp refused
+(`Error::Api`), and 503 `whatsapp_profile_update_failed` means WhatsApp refused
 it or couldn't be reached: fix the image and try again.
 
 Ice breakers are tappable suggestions shown when someone opens a chat with the
@@ -1428,8 +1506,7 @@ println!("on: {}, may call out: {}", calling.calling_enabled, calling.outbound_c
 Once one number is connected, add more numbers to the same WhatsApp Business
 account without the Facebook step. Pass the account's `business_account_id`
 (from `senders().list()`); WhatsApp sends a 6-digit code to the new number by
-text (the default) or voice call. It costs the same $19 one-time fee, refunded
-automatically if the connection fails.
+text (the default) or voice call. It is free, like a Facebook connection.
 
 ```rust
 use sendly::{CreateWhatsAppSignupRequest, WhatsAppSignupStatus, WhatsAppVerificationMethod};
@@ -1458,26 +1535,24 @@ client.whatsapp().signup()
   when the account isn't connected in this workspace, 400
   `display_name_required` when no display name can be found (pass
   `.display_name(...)`), and `whatsapp_verification_start_failed` when
-  WhatsApp would not send the code: 422 when it refused (final) or 502 when it
-  couldn't be reached (start again). The session fails and the fee is refunded
-  either way. Calling it again for a number that is already verifying returns
-  the same session without charging again.
+  WhatsApp would not send the code: 422 when it refused (final) or 503 when it
+  couldn't be reached (start again). The session fails either way. Calling it
+  again for a number that is already verifying returns the same session.
 - `verify` answers 422 `whatsapp_verification_code_invalid` for a wrong code
   (`err.remaining_attempts()` says how many tries are left), 409
-  `whatsapp_verification_failed` on the fifth wrong code (the signup fails and
-  the fee is refunded), 409 `whatsapp_verification_busy` while another code is
-  being checked, 502 `whatsapp_verification_unavailable` when WhatsApp
-  couldn't be reached (not counted; try again) and 502
+  `whatsapp_verification_failed` on the fifth wrong code (the signup fails),
+  409 `whatsapp_verification_busy` while another code is
+  being checked, 503 `whatsapp_verification_unavailable` when WhatsApp
+  couldn't be reached (not counted; try again) and 503
   `whatsapp_activation_pending` when the code was accepted but the connection
   isn't finished yet.
 - `resend` answers 429 `whatsapp_verification_resend_too_soon`
   (`Error::RateLimit`; `err.retry_after()` says how long to wait) and 422 or
-  502 `whatsapp_verification_resend_failed`. `verify` and `resend` answer 409
+  503 `whatsapp_verification_resend_failed`. `verify` and `resend` answer 409
   `signup_not_active` once the signup has failed or is more than 3 hours old.
 - A signup that fails while verifying has `failure_reasons` such as
   `verification_start_failed`, `verification_failed` or
-  `verification_expired`, or `setup_fee_payment_failed` if the fee could not
-  be charged; treat the list as open. The `whatsapp_account.connected` and
+  `verification_expired`; treat the list as open. The `whatsapp_account.connected` and
   `whatsapp_account.failed` webhooks fire for numbers added by code too.
 
 Templates are managed on their own sub-resource:
