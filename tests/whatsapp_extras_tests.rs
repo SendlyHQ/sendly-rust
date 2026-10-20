@@ -892,7 +892,7 @@ async fn test_signup_verify_too_many_wrong_codes_is_a_409() {
         .and(path(format!("/whatsapp/signup/{SIGNUP_ID}/verify")))
         .respond_with(ResponseTemplate::new(409).set_body_json(json!({
             "error": "whatsapp_verification_failed",
-            "message": "Too many wrong codes.. Start again to retry."
+            "message": "Too many wrong codes. Any setup fee is refunded automatically. Start again to retry."
         })))
         .mount(&mock_server)
         .await;
@@ -982,7 +982,7 @@ async fn test_signup_create_with_options_is_sent_once_on_a_502() {
         .and(path("/whatsapp/signup"))
         .respond_with(ResponseTemplate::new(502).set_body_json(json!({
             "error": "whatsapp_verification_start_failed",
-            "message": "WhatsApp couldn't start verifying this number.. Please try again shortly."
+            "message": "WhatsApp couldn't start verifying this number. Any setup fee is refunded automatically. Please try again shortly."
         })))
         .mount(&mock_server)
         .await;

@@ -1217,7 +1217,8 @@ module.
 
 ## WhatsApp
 
-Connect a number you own to WhatsApp (free to connect, no monthly fee), create
+Connect a number you own to WhatsApp ($9.99 one-time connection fee per
+number, no monthly fee), create
 Meta-reviewed templates, and send. Free-form text and media only deliver inside
 an open 24-hour customer-service window; an approved template works anytime.
 
@@ -1238,7 +1239,11 @@ workspace. While it is off, sends return 403 `whatsapp_not_enabled` and the
 After the person behind the connect URL links their WhatsApp Business
 Account, the signup moves to `Registering`, then `Active`. Activation usually
 takes a few minutes but can take hours. If it hasn't finished about 6 hours
-after the session began, the session fails with `registration_timeout`.
+after the session began, the session fails with `registration_timeout` and
+the fee is refunded. The $9.99 fee is charged to your card when you start
+connecting a number. If the connection fails, it is refunded automatically;
+once a number is connected it is not refundable, and a later disconnect gets
+nothing back.
 
 Pricing: free-form text or media inside the 24-hour window costs 1 credit
 each for the first 1,000 per sending number per calendar month (UTC), then
@@ -1395,8 +1400,8 @@ Guide: [Send WhatsApp with an SMS Fallback](https://sendly.live/docs/whatsapp/se
 How the WhatsApp refusals arrive:
 
 - `signup().create()` answers 503 `whatsapp_unavailable` (`Error::Api`) when
-  connections are paused. Only signup returns it; no send does. Its body
-  carries `retryAfter` (3600 seconds), read with
+  connections are paused. Only signup returns it; no send does. Nothing is
+  charged; its body carries `retryAfter` (3600 seconds), read with
   `err.body()`, and the response a `Retry-After: 3600` header. It answers 429
   `whatsapp_signup_limit_reached` (`Error::RateLimit`, not retryable) after too
   many failed connections in 24 hours.
@@ -1506,7 +1511,8 @@ println!("on: {}, may call out: {}", calling.calling_enabled, calling.outbound_c
 Once one number is connected, add more numbers to the same WhatsApp Business
 account without the Facebook step. Pass the account's `business_account_id`
 (from `senders().list()`); WhatsApp sends a 6-digit code to the new number by
-text (the default) or voice call. It is free, like a Facebook connection.
+text (the default) or voice call. It costs the same $9.99 one-time fee, refunded
+automatically if the connection fails.
 
 ```rust
 use sendly::{CreateWhatsAppSignupRequest, WhatsAppSignupStatus, WhatsAppVerificationMethod};
@@ -1536,12 +1542,13 @@ client.whatsapp().signup()
   `display_name_required` when no display name can be found (pass
   `.display_name(...)`), and `whatsapp_verification_start_failed` when
   WhatsApp would not send the code: 422 when it refused (final) or 503 when it
-  couldn't be reached (start again). The session fails either way. Calling it
-  again for a number that is already verifying returns the same session.
+  couldn't be reached (start again). The session fails and the fee is refunded
+  either way. Calling it again for a number that is already verifying returns
+  the same session without charging again.
 - `verify` answers 422 `whatsapp_verification_code_invalid` for a wrong code
   (`err.remaining_attempts()` says how many tries are left), 409
-  `whatsapp_verification_failed` on the fifth wrong code (the signup fails),
-  409 `whatsapp_verification_busy` while another code is
+  `whatsapp_verification_failed` on the fifth wrong code (the signup fails and
+  the fee is refunded), 409 `whatsapp_verification_busy` while another code is
   being checked, 503 `whatsapp_verification_unavailable` when WhatsApp
   couldn't be reached (not counted; try again) and 503
   `whatsapp_activation_pending` when the code was accepted but the connection
@@ -1552,7 +1559,8 @@ client.whatsapp().signup()
   `signup_not_active` once the signup has failed or is more than 3 hours old.
 - A signup that fails while verifying has `failure_reasons` such as
   `verification_start_failed`, `verification_failed` or
-  `verification_expired`; treat the list as open. The `whatsapp_account.connected` and
+  `verification_expired`, or `setup_fee_payment_failed` if the fee could not
+  be charged; treat the list as open. The `whatsapp_account.connected` and
   `whatsapp_account.failed` webhooks fire for numbers added by code too.
 
 Templates are managed on their own sub-resource:

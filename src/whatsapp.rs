@@ -4,7 +4,10 @@
 //! create Meta-reviewed message templates, and send via
 //! [`Messages::send_whatsapp`](crate::Messages::send_whatsapp).
 //!
-//! Connecting a number is free, with no monthly fee. The first
+//! Connecting a number is a one-time $9.99 connection fee per number (no
+//! monthly fee), charged to your card when you start connecting it,
+//! refunded automatically if the connection fails and not refundable once
+//! the number is connected. The first
 //! number ends with a human step: [`WhatsAppSignupResource::create`] returns
 //! a `connect_url` that a person must open in a browser and log in with
 //! Facebook to link their WhatsApp Business Account. Hand the URL to your
@@ -70,7 +73,7 @@ pub enum WhatsAppSignupStatus {
     /// The business account is linked; activation in progress. Activation
     /// usually takes a few minutes but can take hours. If it hasn't finished
     /// about 6 hours after the session began, the session fails with
-    /// `registration_timeout`.
+    /// `registration_timeout` and the fee is refunded.
     Registering,
     /// A number being added to an already-connected WhatsApp Business
     /// account is waiting for its verification code: submit it with
@@ -159,8 +162,9 @@ pub struct WhatsAppSignup {
     /// before the human completes the connect step.
     #[serde(default, alias = "businessAccountId")]
     pub business_account_id: Option<String>,
-    /// Why the signup failed, when status is `Failed`; `None` otherwise.
-    /// Adding a number by code can fail with `verification_start_failed` (WhatsApp
+    /// Why the signup failed, when status is `Failed`; `None` otherwise. If
+    /// the connection fails, the $9.99 fee is refunded automatically. Adding a
+    /// number by code can fail with `verification_start_failed` (WhatsApp
     /// would not send a code), `verification_failed` (too many wrong codes)
     /// or `verification_expired` (the code was never entered). Other values
     /// may appear; treat the list as open.
@@ -769,28 +773,33 @@ impl<'a> WhatsAppSignupResource<'a> {
 
     /// Start connecting a number to WhatsApp.
     ///
-    /// Connecting a number is free, with no monthly fee. Returns a
-    /// `connect_url`. Completing the connection requires a human: hand the
+    /// Charges a one-time $9.99 connection fee per number (no monthly fee) to
+    /// your card and returns a `connect_url`. Completing the connection requires a human: hand the
     /// URL to your user — they open it in a browser and log in with
     /// Facebook to link their WhatsApp Business Account. Then poll
     /// [`get`](Self::get) until the status is `Active`.
     ///
     /// Calling again for a number with an in-flight signup returns the
-    /// existing signup (same `connect_url`). Requires a live API key with the `whatsapp:write` scope (a test key
+    /// existing signup (same `connect_url`) without charging again.
+    /// Requires a live API key with the `whatsapp:write` scope (a test key
     /// gets 403 `whatsapp_requires_live_key`) and, in a team workspace, an
     /// owner or admin (`settings:write`). After the Facebook step the signup
     /// stays `Registering` while WhatsApp activates the number. Activation
     /// usually takes a few minutes but can take hours. If it hasn't finished
     /// about 6 hours after the session began, the session fails with
-    /// `registration_timeout`.
+    /// `registration_timeout` and the fee is refunded. If the connection
+    /// fails, the $9.99 fee is refunded automatically; once the number is
+    /// connected it is not refundable, and a later disconnect gets nothing
+    /// back.
     ///
     /// A number that is being added by code answers 409
     /// `whatsapp_verification_in_progress`, with that session's `id` in the
     /// body.
     ///
     /// While WhatsApp connections are unavailable this answers 503
-    /// `whatsapp_unavailable`, with `retryAfter` 3600 in the body and a
-    /// `Retry-After: 3600` header. Only signup returns it; no send does.
+    /// `whatsapp_unavailable` before charging anything, with `retryAfter`
+    /// 3600 in the body and a `Retry-After: 3600` header. Only signup
+    /// returns it; no send does.
     pub async fn create(&self, phone_number: &str) -> Result<WhatsAppSignupSession> {
         let response = self
             .client
@@ -809,13 +818,15 @@ impl<'a> WhatsAppSignupResource<'a> {
     /// With a non-empty `business_account_id` it adds the number to that
     /// WhatsApp Business account, which must already be connected in this
     /// workspace with at least one active number, by verification code and
-    /// with no Facebook step. Like a Facebook connection it is free. It asks
-    /// WhatsApp to send a 6-digit code to the number by text or voice call,
-    /// and returns a session with status `Verifying` (and no `connect_url`). Poll
+    /// with no Facebook step. It charges the same $9.99 one-time fee (refunded
+    /// automatically if the connection fails), asks WhatsApp to send a
+    /// 6-digit code to the number by text or voice call, and returns a
+    /// session with status `Verifying` (and no `connect_url`). Poll
     /// [`get`](Self::get) for `verification_code` (filled in when the code
     /// arrives as a text on the number), then submit it with
     /// [`verify`](Self::verify). Calling again for a number that is already
-    /// verifying returns that session without sending a second code.
+    /// verifying returns that session without charging again or sending a
+    /// second code.
     ///
     /// Requires a live API key with the `whatsapp:write` scope and, in a
     /// team workspace, an owner or admin (`settings:write`). The number
@@ -823,15 +834,15 @@ impl<'a> WhatsAppSignupResource<'a> {
     /// `whatsapp_business_account_not_found` (`Error::NotFound`); 400
     /// `display_name_required` or `invalid_request` (`Error::Validation`);
     /// 402 `payment_method_required` or `payment_failed`
-    /// (`Error::InsufficientCredits`, not returned while connecting is
-    /// free); 409 `whatsapp_already_enabled`, `whatsapp_signup_in_progress`
-    /// (a Facebook connection for the number is under way; the body has its
+    /// (`Error::InsufficientCredits`, when the $9.99 fee couldn't be charged);
+    /// 409 `whatsapp_already_enabled`, `whatsapp_signup_in_progress` (a
+    /// Facebook connection for the number is under way; the body has its
     /// `id`) or `whatsapp_verification_in_progress` (`Error::Api`); 429
     /// `whatsapp_signup_limit_reached` (`Error::RateLimit`, not retryable);
     /// and `whatsapp_verification_start_failed` when WhatsApp would not send
     /// the code, a 422 when it refused (`Error::Validation`, final) or a 503
     /// when it couldn't be reached (`Error::Api`, start again). Either way
-    /// the session fails.
+    /// the session fails and the fee is refunded.
     ///
     /// Starting the Facebook connection for a number that is being added by
     /// code answers 409 `whatsapp_verification_in_progress` with the
@@ -839,8 +850,8 @@ impl<'a> WhatsAppSignupResource<'a> {
     ///
     /// With a non-empty `business_account_id` the request is sent once: the
     /// client never retries it, not after a 5xx, a timeout or a network
-    /// error, because a failed start has already failed the session, and a
-    /// new attempt is a new session. Calling again is safe while the number
+    /// error, because a failed start has already failed the session and
+    /// refunded the fee, and a new attempt is a new $9.99 session. Calling again is safe while the number
     /// is verifying (you get the same session back). No
     /// `business_account_id` starts the Facebook connection, which is
     /// retried like [`create`](Self::create). A
@@ -913,7 +924,7 @@ impl<'a> WhatsAppSignupResource<'a> {
     ///   (`Error::Validation`); [`Error::remaining_attempts`] says how many
     ///   tries are left.
     /// - 409 `whatsapp_verification_failed`: the fifth wrong code. The
-    ///   signup fails; start again.
+    ///   signup fails and the fee is refunded; start again.
     /// - 409 `whatsapp_verification_busy`: another code for the number is
     ///   being checked; try again in a moment.
     /// - 409 `signup_not_active`: the signup isn't waiting for a code (it
@@ -1288,7 +1299,7 @@ impl<'a> WhatsAppTemplatesResource<'a> {
 /// # async fn run() -> Result<(), sendly::Error> {
 /// let client = Sendly::new("sk_live_v1_xxx");
 ///
-/// // 1) Connect a number (free, no monthly fee). The connect URL
+/// // 1) Connect a number ($9.99 one-time, no monthly fee). The connect URL
 /// //    must be opened by a human — they log in with Facebook in a
 /// //    browser to link their WhatsApp Business Account.
 /// let signup = client.whatsapp().signup().create("+15559876543").await?;
