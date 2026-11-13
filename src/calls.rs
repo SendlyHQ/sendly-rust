@@ -6,9 +6,9 @@
 //! workspace's AI agents (created with
 //! [`VoiceResource::agents`](crate::VoiceResource::agents) or in the
 //! dashboard under Calls → Agents).
-//! Reads need the `calls:read` scope and writes `calls:write`; placing or
-//! ending a call also needs a live API key (a test key answers 403
-//! `live_key_required`).
+//! Reads need the `calls:read` scope and writes `calls:write`; placing,
+//! ending or transferring a call also needs a live API key (a test key
+//! answers 403 `live_key_required`).
 //!
 //! Calls are billed per started minute in credits (1 credit = $0.01),
 //! prepaid from the workspace balance: an outbound call costs 2 credits/min,
@@ -34,6 +34,7 @@ use serde::{Deserialize, Serialize};
 use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 use crate::models::IdempotentRequestOptions;
+use crate::voice::VoiceAgentKind;
 
 /// Where a call is in its lifecycle.
 ///
@@ -332,6 +333,93 @@ impl std::fmt::Display for CallTranscriptSpeaker {
     }
 }
 
+/// Where a call's latest transfer stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CallTransferStatus {
+    /// The number is ringing.
+    Pending,
+    /// The caller was handed over.
+    Completed,
+    /// The transfer did not go through; the caller is still on the call.
+    Failed,
+    /// A status this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+impl CallTransferStatus {
+    /// The status as the API spells it.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for CallTransferStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Why a transfer failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CallTransferFailureReason {
+    /// The number was busy.
+    Busy,
+    /// Nobody answered.
+    NoAnswer,
+    /// The call was declined.
+    Declined,
+    /// The number couldn't be reached.
+    Unavailable,
+    /// No definite answer came back. Also any reason this SDK version
+    /// doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+impl CallTransferFailureReason {
+    /// The reason as the API spells it.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Busy => "busy",
+            Self::NoAnswer => "no_answer",
+            Self::Declined => "declined",
+            Self::Unavailable => "unavailable",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for CallTransferFailureReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// The latest transfer on a call, from [`Call::transfer`].
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct CallTransfer {
+    /// The number the caller is transferred to (E.164).
+    pub to: String,
+    /// Where the transfer stands.
+    pub status: CallTransferStatus,
+    /// Why it failed; `None` unless `status` is
+    /// [`CallTransferStatus::Failed`].
+    #[serde(default)]
+    pub failure_reason: Option<CallTransferFailureReason>,
+}
+
 /// One line of an agent-handled call's transcript.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -408,11 +496,25 @@ pub struct Call {
     /// Whether the call is being metered, is settled, or was never charged.
     pub billing: CallBilling,
     /// Why the call ended (e.g. `"normal"`, `"ring_timeout"`,
-    /// `"credits_exhausted"`), or `None` while it is live. See the API
+    /// `"credits_exhausted"`, `"transferred"`), or `None` while it is live.
+    /// With your own agent, `"agent_remote_hangup"` means it ended the call
+    /// and `"agent_byo_failed"` that it couldn't be reached. See the API
     /// reference for the full vocabulary; anything unrecognised is
     /// reported as `"ended"`.
     #[serde(default)]
     pub hangup_class: Option<String>,
+    /// The kind of agent that answered, `None` when no agent handled the
+    /// call. Calls from before agent kinds existed read
+    /// [`VoiceAgentKind::Sendly`].
+    #[serde(default)]
+    pub agent_kind: Option<VoiceAgentKind>,
+    /// `true` when your own agent couldn't be reached or dropped, so Sendly
+    /// said a short line and transferred the caller or took a message.
+    #[serde(default)]
+    pub agent_fallback: bool,
+    /// The latest transfer, `None` when the call was never transferred.
+    #[serde(default)]
+    pub transfer: Option<CallTransfer>,
     /// Recording state, or `None` when there is no recording.
     #[serde(default)]
     pub recording_status: Option<CallRecordingStatus>,
@@ -571,6 +673,38 @@ impl CreateCallRequest {
     }
 }
 
+/// Request to transfer a call, for [`CallsResource::transfer`].
+///
+/// [`TransferCallRequest::new`] sends an empty body, which transfers the
+/// caller to the agent's transfer number
+/// ([`VoiceAgentTools::transfer_to`](crate::VoiceAgentTools::transfer_to)).
+/// This type is `#[non_exhaustive]`, so external crates must use the
+/// constructor rather than a struct literal.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct TransferCallRequest {
+    /// The number to hand the caller to (E.164): a US or Canadian number
+    /// that is not premium-rate, not the number the caller dialled and not
+    /// a number the agent answers. Any number other than the agent's
+    /// transfer number needs calling out switched on for the workspace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+}
+
+impl TransferCallRequest {
+    /// Creates a request that transfers to the agent's transfer number.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the number to transfer the caller to.
+    pub fn to(mut self, to: impl Into<String>) -> Self {
+        self.to = Some(to.into());
+        self
+    }
+}
+
 /// Filters and paging for [`CallsResource::list`].
 #[derive(Debug, Clone, Default)]
 pub struct ListCallsOptions {
@@ -586,6 +720,9 @@ pub struct ListCallsOptions {
     pub kind: Option<CallKind>,
     /// Only calls handled by this agent.
     pub agent_id: Option<String>,
+    /// Only calls answered by this kind of agent. Calls from before agent
+    /// kinds existed count as [`VoiceAgentKind::Sendly`].
+    pub agent_kind: Option<VoiceAgentKind>,
     /// Only calls to this number (E.164, exact match).
     pub to: Option<String>,
     /// Only calls from this number (E.164, exact match).
@@ -634,6 +771,12 @@ impl ListCallsOptions {
         self
     }
 
+    /// Filters by the kind of agent that answered.
+    pub fn agent_kind(mut self, agent_kind: VoiceAgentKind) -> Self {
+        self.agent_kind = Some(agent_kind);
+        self
+    }
+
     /// Filters by the called number.
     pub fn to(mut self, to: impl Into<String>) -> Self {
         self.to = Some(to.into());
@@ -667,6 +810,9 @@ impl ListCallsOptions {
         if let Some(ref agent_id) = self.agent_id {
             params.push(("agentId".to_string(), agent_id.clone()));
         }
+        if let Some(agent_kind) = self.agent_kind {
+            params.push(("agentKind".to_string(), agent_kind.as_str().to_string()));
+        }
         if let Some(ref to) = self.to {
             params.push(("to".to_string(), to.clone()));
         }
@@ -682,7 +828,8 @@ impl ListCallsOptions {
 ///
 /// Place a call ([`create`](Self::create)), follow it
 /// ([`list`](Self::list), [`get`](Self::get)), end it early
-/// ([`hangup`](Self::hangup)) and fetch the recording
+/// ([`hangup`](Self::hangup)), hand the caller to a person
+/// ([`transfer`](Self::transfer)) and fetch the recording
 /// ([`recording`](Self::recording)). Configuration (switching voice on for
 /// a number, choosing how it answers, registering an emergency address,
 /// creating agents) lives on [`VoiceResource`](crate::VoiceResource); use
@@ -694,10 +841,12 @@ impl ListCallsOptions {
 /// `call_not_found`, `agent_not_found`, `number_not_found`) are
 /// [`Error::NotFound`], 400s (`agent_required`, `invalid_number`,
 /// `invalid_metadata`, `from_number_required`, `from_number_not_supported`,
-/// `destination_not_supported`) are [`Error::Validation`], 429s are
-/// [`Error::RateLimit`], and everything
-/// else (403 `live_key_required`, 409 `agent_disabled` / `no_voice_number` /
-/// `lines_busy`, 428 `e911_required`, 503 `voice_unavailable`) is
+/// `destination_not_supported`, `transfer_to_required`) are
+/// [`Error::Validation`], 429s are [`Error::RateLimit`], and everything
+/// else (403 `live_key_required` / `outbound_not_enabled`, 409
+/// `agent_disabled` / `agent_kind_unsupported` / `no_voice_number` /
+/// `lines_busy` / `call_not_active` / `call_not_transferable` /
+/// `transfer_in_progress`, 428 `e911_required`, 503 `voice_unavailable`) is
 /// [`Error::Api`] with `code` set.
 #[derive(Debug, Clone)]
 pub struct CallsResource<'a> {
@@ -717,7 +866,9 @@ impl<'a> CallsResource<'a> {
     /// `call.completed` webhooks to follow it. Needs at least one minute of
     /// credit at the agent-outbound rate (10 credits) up front
     /// ([`Error::InsufficientCredits`] otherwise) and a `from` number with
-    /// an emergency address registered (428 `e911_required` otherwise).
+    /// an emergency address registered (428 `e911_required` otherwise). A
+    /// `sip` or `websocket` agent answers incoming calls only (409
+    /// `agent_kind_unsupported`); a `custom_llm` agent can place calls.
     ///
     /// # Arguments
     ///
@@ -903,6 +1054,70 @@ impl<'a> CallsResource<'a> {
                 options.idempotency_key.as_deref(),
                 true,
             )
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    /// Transfers the caller on an incoming phone call to another number,
+    /// whatever kind of agent is on the call. Requires the `calls:write`
+    /// scope and a live API key.
+    ///
+    /// Answers at once with the call, its `transfer.status`
+    /// [`CallTransferStatus::Pending`]. Follow the outcome with
+    /// [`get`](Self::get); once the caller is handed over the call ends
+    /// `Completed` with `hangup_class` `"transferred"`. A failed transfer
+    /// leaves the caller on the call. Without a `to`, the agent's transfer
+    /// number is used (400 `transfer_to_required` when it has none); any
+    /// other number needs calling out switched on (403
+    /// `outbound_not_enabled`). Also 400 `invalid_request` for a `to` that
+    /// isn't allowed, [`Error::InsufficientCredits`] when the workspace has
+    /// no credits left, 404 `call_not_found`, 409 `call_not_active`,
+    /// `call_not_transferable` (not an incoming phone call) or
+    /// `transfer_in_progress`.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The call id
+    /// * `request` - Where to transfer the caller (see [`TransferCallRequest`])
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{Sendly, TransferCallRequest};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let call = client
+    ///     .calls()
+    ///     .transfer(
+    ///         "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+    ///         TransferCallRequest::new().to("+15555550102"),
+    ///     )
+    ///     .await?;
+    /// if let Some(transfer) = &call.transfer {
+    ///     println!("{} {}", transfer.to, transfer.status); // ... pending
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn transfer(&self, id: &str, request: TransferCallRequest) -> Result<Call> {
+        self.transfer_with_options(id, request, IdempotentRequestOptions::new())
+            .await
+    }
+
+    /// [`transfer`](Self::transfer) with per-call options (e.g. your own
+    /// idempotency key).
+    pub async fn transfer_with_options(
+        &self,
+        id: &str,
+        request: TransferCallRequest,
+        options: IdempotentRequestOptions,
+    ) -> Result<Call> {
+        let path = format!("/calls/{}/transfer", encode_call_id(id)?);
+        let response = self
+            .client
+            .post_with_idempotency(&path, &request, options.idempotency_key.as_deref(), true)
             .await?;
         Ok(response.json().await?)
     }

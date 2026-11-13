@@ -22,6 +22,8 @@
 //!
 //! See <https://sendly.live/docs/voice> for the full guide.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::client::{path_id, Sendly};
@@ -59,6 +61,447 @@ impl VoiceMode {
 impl std::fmt::Display for VoiceMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+/// Who answers an agent's calls.
+///
+/// [`VoiceAgentKind::Sendly`] is the default. The other kinds are your own
+/// agents, which need the workspace's bring-your-own-agent feature (403
+/// `byo_agents_not_enabled` otherwise).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum VoiceAgentKind {
+    /// Sendly writes the replies from the agent's instructions.
+    #[default]
+    Sendly,
+    /// Sendly listens and speaks, and your chat completions endpoint writes
+    /// each reply.
+    CustomLlm,
+    /// Sendly connects the caller to your agent's SIP address. Answers
+    /// incoming calls only.
+    Sip,
+    /// Sendly streams the call audio to your `wss://` server and plays back
+    /// what it sends. Answers incoming calls only.
+    Websocket,
+    /// A kind this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+impl VoiceAgentKind {
+    /// The kind as the API spells it (e.g. `"custom_llm"`).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Sendly => "sendly",
+            Self::CustomLlm => "custom_llm",
+            Self::Sip => "sip",
+            Self::Websocket => "websocket",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for VoiceAgentKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// How a `sip` agent's call is carried.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum VoiceAgentSipTransport {
+    /// Chosen from the address.
+    Auto,
+    /// UDP.
+    Udp,
+    /// TCP, the default.
+    Tcp,
+    /// TLS. A `sips:` address always uses it.
+    Tls,
+    /// A transport this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+impl VoiceAgentSipTransport {
+    /// The transport as the API spells it.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Udp => "udp",
+            Self::Tcp => "tcp",
+            Self::Tls => "tls",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for VoiceAgentSipTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Whether a `sip` agent's call audio is encrypted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum VoiceAgentSipMediaEncryption {
+    /// Never encrypted.
+    Disable,
+    /// Encrypted when the other side supports it, the default.
+    Allow,
+    /// Always encrypted; needs the TLS transport.
+    Require,
+    /// A setting this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+impl VoiceAgentSipMediaEncryption {
+    /// The setting as the API spells it.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Disable => "disable",
+            Self::Allow => "allow",
+            Self::Require => "require",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for VoiceAgentSipMediaEncryption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// The audio format a `websocket` agent's server sends and receives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum VoiceAgentAudioFormat {
+    /// 16-bit PCM at 16 kHz, the default.
+    #[serde(rename = "pcm16_16000")]
+    Pcm16At16000,
+    /// 16-bit PCM at 24 kHz.
+    #[serde(rename = "pcm16_24000")]
+    Pcm16At24000,
+    /// 16-bit PCM at 8 kHz.
+    #[serde(rename = "pcm16_8000")]
+    Pcm16At8000,
+    /// Mu-law at 8 kHz.
+    #[serde(rename = "mulaw_8000")]
+    MulawAt8000,
+    /// A format this SDK version doesn't know yet.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+impl VoiceAgentAudioFormat {
+    /// The format as the API spells it (e.g. `"pcm16_16000"`).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pcm16At16000 => "pcm16_16000",
+            Self::Pcm16At24000 => "pcm16_24000",
+            Self::Pcm16At8000 => "pcm16_8000",
+            Self::MulawAt8000 => "mulaw_8000",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for VoiceAgentAudioFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// How Sendly reaches one of your own agents, as the API returns it.
+///
+/// Only the fields of the agent's [`VoiceAgent::kind`] are set. Secrets
+/// (the API key, header values, password, auth token) are never returned;
+/// the `has_*` flags say whether one is saved.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct VoiceAgentConnection {
+    /// `custom_llm`: your chat completions endpoint. Sendly sends
+    /// `POST {base_url}/chat/completions` with streaming on.
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// `custom_llm`: the model name sent in each request.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// `custom_llm`: the names of the extra headers sent with each request.
+    #[serde(default)]
+    pub header_names: Vec<String>,
+    /// `custom_llm`: whether an API key is saved.
+    #[serde(default)]
+    pub has_api_key: bool,
+    /// `sip`: your agent's SIP address, e.g.
+    /// `"sip:+15125550100@sip.example.com"`.
+    #[serde(default)]
+    pub uri: Option<String>,
+    /// `sip`: how the call is carried.
+    #[serde(default)]
+    pub transport: Option<VoiceAgentSipTransport>,
+    /// `sip`: whether the call audio is encrypted.
+    #[serde(default)]
+    pub media_encryption: Option<VoiceAgentSipMediaEncryption>,
+    /// `sip`: the digest auth username, or `None`.
+    #[serde(default)]
+    pub username: Option<String>,
+    /// `sip`: whether a digest auth password is saved.
+    #[serde(default)]
+    pub has_password: bool,
+    /// `sip`: extra `X-` headers sent on the call.
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    /// `websocket`: your `wss://` server.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// `websocket`: the audio format both ways.
+    #[serde(default)]
+    pub audio_format: Option<VoiceAgentAudioFormat>,
+    /// `websocket`: whether an auth token is saved.
+    #[serde(default)]
+    pub has_auth_token: bool,
+    /// `websocket`: sent to your server in the `start` message.
+    #[serde(default)]
+    pub custom_parameters: HashMap<String, String>,
+}
+
+/// How Sendly reaches one of your own agents, for
+/// [`CreateVoiceAgentRequest::connection`] and
+/// [`UpdateVoiceAgentRequest::connection`].
+///
+/// Start from [`custom_llm`](Self::custom_llm), [`sip`](Self::sip) or
+/// [`websocket`](Self::websocket) (or [`new`](Self::new) on an update that
+/// changes only some fields) and set the fields of the agent's kind. Unset
+/// fields are left out of the request; on an update that keeps the same
+/// kind, the connection is merged into the saved one, so they keep their
+/// values. A secret (`api_key`, `password`, `auth_token`) is
+/// `Some(Some(value))` to set it, `Some(None)` to remove it (sent as
+/// `null`), and `None` to keep the saved one. Hosts must resolve to public
+/// internet addresses; a field that breaks a rule is refused with 400
+/// `invalid_request` ([`Error::Validation`]) reading
+/// `connection.<field>: <reason>`.
+///
+/// This type is `#[non_exhaustive]`, so external crates must use the
+/// constructors rather than a struct literal.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct VoiceAgentConnectionInput {
+    /// `custom_llm`: an `https://` URL of up to 2048 characters, with no
+    /// credentials or `#`. A trailing `/` is dropped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// `custom_llm`: 1-200 letters, digits and `_ . : / @ + -`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// `custom_llm`: sent as `Authorization: Bearer`, 1-2048 printable
+    /// ASCII characters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<Option<String>>,
+    /// `sip`: `sip:` or `sips:` with a user part and a hostname (not an IP
+    /// address). Only `;transport=` may follow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uri: Option<String>,
+    /// `sip`: defaults to [`VoiceAgentSipTransport::Tcp`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<VoiceAgentSipTransport>,
+    /// `sip`: defaults to [`VoiceAgentSipMediaEncryption::Allow`];
+    /// [`VoiceAgentSipMediaEncryption::Require`] needs the TLS transport.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_encryption: Option<VoiceAgentSipMediaEncryption>,
+    /// `sip`: the digest auth username; `Some(None)` removes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<Option<String>>,
+    /// `sip`: the digest auth password.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<Option<String>>,
+    /// Extra headers with secret values, replacing the saved set;
+    /// `Some(None)` removes them. `custom_llm`: up to 10, sent with each
+    /// request; `Authorization`, `Content-Type`, `Content-Length`, `Host`,
+    /// `Connection`, `Transfer-Encoding`, `User-Agent` and `X-Sendly-*`
+    /// can't be set. `sip`: up to 10 named `X-...` (not `X-Sendly-...`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<Option<HashMap<String, String>>>,
+    /// `websocket`: a `wss://` URL of up to 2048 characters, with no
+    /// credentials or `#`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// `websocket`: defaults to [`VoiceAgentAudioFormat::Pcm16At16000`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_format: Option<VoiceAgentAudioFormat>,
+    /// `websocket`: sent as `Authorization: Bearer`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_token: Option<Option<String>>,
+    /// `websocket`: up to 20 values sent in the `start` message, replacing
+    /// the saved set; `Some(None)` removes them. Keys are 1-40 letters,
+    /// digits and `_ . : -`; values up to 500 characters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_parameters: Option<Option<HashMap<String, String>>>,
+}
+
+impl VoiceAgentConnectionInput {
+    /// Creates an empty connection that sets nothing until a field is set.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A `custom_llm` connection to `base_url` with `model`.
+    pub fn custom_llm(base_url: impl Into<String>, model: impl Into<String>) -> Self {
+        Self::new().base_url(base_url).model(model)
+    }
+
+    /// A `sip` connection to `uri`.
+    pub fn sip(uri: impl Into<String>) -> Self {
+        Self::new().uri(uri)
+    }
+
+    /// A `websocket` connection to `url`.
+    pub fn websocket(url: impl Into<String>) -> Self {
+        Self::new().url(url)
+    }
+
+    /// Sets the chat completions endpoint (`custom_llm`).
+    pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = Some(base_url.into());
+        self
+    }
+
+    /// Sets the model name (`custom_llm`).
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
+        self
+    }
+
+    /// Sets the API key (`custom_llm`).
+    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(Some(api_key.into()));
+        self
+    }
+
+    /// Removes the saved API key (sends `apiKey: null`).
+    pub fn clear_api_key(mut self) -> Self {
+        self.api_key = Some(None);
+        self
+    }
+
+    /// Sets the SIP address (`sip`).
+    pub fn uri(mut self, uri: impl Into<String>) -> Self {
+        self.uri = Some(uri.into());
+        self
+    }
+
+    /// Sets the SIP transport (`sip`).
+    pub fn transport(mut self, transport: VoiceAgentSipTransport) -> Self {
+        self.transport = Some(transport);
+        self
+    }
+
+    /// Sets whether the call audio is encrypted (`sip`).
+    pub fn media_encryption(mut self, media_encryption: VoiceAgentSipMediaEncryption) -> Self {
+        self.media_encryption = Some(media_encryption);
+        self
+    }
+
+    /// Sets the digest auth username (`sip`).
+    pub fn username(mut self, username: impl Into<String>) -> Self {
+        self.username = Some(Some(username.into()));
+        self
+    }
+
+    /// Removes the digest auth username (sends `username: null`).
+    pub fn clear_username(mut self) -> Self {
+        self.username = Some(None);
+        self
+    }
+
+    /// Sets the digest auth password (`sip`).
+    pub fn password(mut self, password: impl Into<String>) -> Self {
+        self.password = Some(Some(password.into()));
+        self
+    }
+
+    /// Removes the saved password (sends `password: null`).
+    pub fn clear_password(mut self) -> Self {
+        self.password = Some(None);
+        self
+    }
+
+    /// Replaces the extra headers (`custom_llm` or `sip`).
+    pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers = Some(Some(headers));
+        self
+    }
+
+    /// Adds one extra header (`custom_llm` or `sip`). The headers sent
+    /// replace the saved set.
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers
+            .get_or_insert_with(|| Some(HashMap::new()))
+            .get_or_insert_with(HashMap::new)
+            .insert(name.into(), value.into());
+        self
+    }
+
+    /// Removes the saved headers (sends `headers: null`).
+    pub fn clear_headers(mut self) -> Self {
+        self.headers = Some(None);
+        self
+    }
+
+    /// Sets the `wss://` server (`websocket`).
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    /// Sets the audio format (`websocket`).
+    pub fn audio_format(mut self, audio_format: VoiceAgentAudioFormat) -> Self {
+        self.audio_format = Some(audio_format);
+        self
+    }
+
+    /// Sets the auth token (`websocket`).
+    pub fn auth_token(mut self, auth_token: impl Into<String>) -> Self {
+        self.auth_token = Some(Some(auth_token.into()));
+        self
+    }
+
+    /// Removes the saved auth token (sends `authToken: null`).
+    pub fn clear_auth_token(mut self) -> Self {
+        self.auth_token = Some(None);
+        self
+    }
+
+    /// Replaces the custom parameters (`websocket`).
+    pub fn custom_parameters(mut self, custom_parameters: HashMap<String, String>) -> Self {
+        self.custom_parameters = Some(Some(custom_parameters));
+        self
+    }
+
+    /// Adds one custom parameter (`websocket`). The parameters sent replace
+    /// the saved set.
+    pub fn custom_parameter(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.custom_parameters
+            .get_or_insert_with(|| Some(HashMap::new()))
+            .get_or_insert_with(HashMap::new)
+            .insert(key.into(), value.into());
+        self
+    }
+
+    /// Removes the saved custom parameters (sends `customParameters: null`).
+    pub fn clear_custom_parameters(mut self) -> Self {
+        self.custom_parameters = Some(None);
+        self
     }
 }
 
@@ -311,10 +754,9 @@ pub struct VoiceAgentTools {
     /// [`VoiceAgent::can_send_sms`] is true.
     #[serde(default)]
     pub send_sms: bool,
-    /// A number (E.164) for callers who need a person, or `None`. Agents
-    /// cannot transfer calls yet and never dial or read out this number:
-    /// while it is set, a caller who asks for a person is told the message
-    /// will be passed on, and the agent takes their name and number.
+    /// The number (E.164) the agent transfers a caller to when asked for a
+    /// person, and the number [`CallsResource::transfer`](crate::CallsResource::transfer)
+    /// uses when no `to` is given. `None` when the agent cannot transfer.
     #[serde(default)]
     pub transfer_to: Option<String>,
 }
@@ -396,6 +838,25 @@ pub struct VoiceAgent {
     /// Business instructions the agent follows (`""` when unset).
     #[serde(default)]
     pub instructions: String,
+    /// Who answers the agent's calls.
+    #[serde(default)]
+    pub kind: VoiceAgentKind,
+    /// How Sendly reaches your own agent, `None` for a
+    /// [`VoiceAgentKind::Sendly`] agent. Secrets are never returned.
+    #[serde(default)]
+    pub connection: Option<VoiceAgentConnection>,
+    /// Whether the agent has a signing secret. Your own agents do: Sendly
+    /// signs every request to them with it, in an `X-Sendly-Signature`
+    /// header of the form `t=<unix seconds>,v1=<hex HMAC-SHA256>`.
+    #[serde(default)]
+    pub has_signing_secret: bool,
+    /// The agent's signing secret, `Some` only on the response that made
+    /// it: creating one of your own agents, an update that switches a
+    /// `sendly` agent to one of your own, and an update with
+    /// [`UpdateVoiceAgentRequest::rotate_signing_secret`]. Save it now; it
+    /// is never shown again.
+    #[serde(default)]
+    pub signing_secret: Option<String>,
     /// What the agent may do on a call.
     #[serde(default)]
     pub tools: VoiceAgentTools,
@@ -469,6 +930,14 @@ pub struct CreateVoiceAgentRequest {
     /// What the agent may do on a call.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<VoiceAgentToolsInput>,
+    /// Who answers the agent's calls; the API defaults to
+    /// [`VoiceAgentKind::Sendly`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<VoiceAgentKind>,
+    /// How Sendly reaches your own agent, matching `kind`. Required when
+    /// `kind` is one of your own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection: Option<VoiceAgentConnectionInput>,
 }
 
 impl CreateVoiceAgentRequest {
@@ -482,6 +951,8 @@ impl CreateVoiceAgentRequest {
             greeting: None,
             instructions: None,
             tools: None,
+            kind: None,
+            connection: None,
         }
     }
 
@@ -520,6 +991,18 @@ impl CreateVoiceAgentRequest {
         self.tools = Some(tools);
         self
     }
+
+    /// Sets who answers the agent's calls.
+    pub fn kind(mut self, kind: VoiceAgentKind) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    /// Sets how Sendly reaches your own agent.
+    pub fn connection(mut self, connection: VoiceAgentConnectionInput) -> Self {
+        self.connection = Some(connection);
+        self
+    }
 }
 
 /// Request to update an AI agent.
@@ -554,6 +1037,21 @@ pub struct UpdateVoiceAgentRequest {
     /// Tool settings to change; tools you leave unset keep their values.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<VoiceAgentToolsInput>,
+    /// Switches who answers the agent's calls. Switching to one of your own
+    /// needs `connection`; switching to [`VoiceAgentKind::Sendly`] removes
+    /// the connection and the signing secret.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<VoiceAgentKind>,
+    /// Connection fields to change. With the same `kind` they are merged
+    /// into the saved connection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection: Option<VoiceAgentConnectionInput>,
+    /// `true` makes a new signing secret for one of your own agents; the
+    /// response carries it once in [`VoiceAgent::signing_secret`] and the
+    /// old secret stops working at once. Sent only when `true`. Refused
+    /// with 400 `invalid_request` on a `sendly` agent.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub rotate_signing_secret: bool,
 }
 
 impl UpdateVoiceAgentRequest {
@@ -601,6 +1099,24 @@ impl UpdateVoiceAgentRequest {
     /// Sets the tool settings to change.
     pub fn tools(mut self, tools: VoiceAgentToolsInput) -> Self {
         self.tools = Some(tools);
+        self
+    }
+
+    /// Switches who answers the agent's calls.
+    pub fn kind(mut self, kind: VoiceAgentKind) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    /// Sets the connection fields to change.
+    pub fn connection(mut self, connection: VoiceAgentConnectionInput) -> Self {
+        self.connection = Some(connection);
+        self
+    }
+
+    /// Makes a new signing secret (sends `rotateSigningSecret: true`).
+    pub fn rotate_signing_secret(mut self) -> Self {
+        self.rotate_signing_secret = true;
         self
     }
 }
@@ -886,6 +1402,13 @@ impl<'a> VoiceAgentsResource<'a> {
     /// has one. A workspace can have up to 20 agents (409 `agent_limit`
     /// after that).
     ///
+    /// Set [`kind`](CreateVoiceAgentRequest::kind) and
+    /// [`connection`](CreateVoiceAgentRequest::connection) to bring your own
+    /// agent; the response's `signing_secret` is the only time its signing
+    /// secret is shown. Your own agents need the workspace's
+    /// bring-your-own-agent feature (403 `byo_agents_not_enabled`,
+    /// [`Error::Api`]).
+    ///
     /// # Arguments
     ///
     /// * `request` - The agent's name, voice, greeting, instructions and tools
@@ -973,7 +1496,11 @@ impl<'a> VoiceAgentsResource<'a> {
     /// key.
     ///
     /// Only the fields you set are sent; tools you leave unset keep their
-    /// current values. Changes apply to the next call the agent takes.
+    /// current values. Changes apply to the next call the agent takes. The
+    /// response's `signing_secret` is `Some` when the update made one
+    /// (switching a `sendly` agent to one of your own, or
+    /// [`rotate_signing_secret`](UpdateVoiceAgentRequest::rotate_signing_secret)):
+    /// save it then; it is never shown again.
     ///
     /// # Arguments
     ///
@@ -1113,7 +1640,8 @@ impl<'a> VoicesResource<'a> {
 /// (`invalid_request`, `invalid_voice_mode`, `agent_required`,
 /// `invalid_address`, `e911_not_applicable`) and 422 `invalid_address` are
 /// [`Error::Validation`]; 429s are [`Error::RateLimit`]; everything else
-/// (403 `forbidden` / `live_key_required`, 409 `agent_disabled` /
+/// (403 `forbidden` / `live_key_required` / `byo_agents_not_enabled`, 409
+/// `agent_disabled` /
 /// `agent_limit` / `agent_in_use`, 503 `voice_attach_failed` /
 /// `carrier_refused`, 503 `voice_unavailable`) is [`Error::Api`] with `code`
 /// set.

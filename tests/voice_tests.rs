@@ -4,7 +4,9 @@ use common::{create_test_client, setup_mock_server, TEST_API_KEY};
 use regex::Regex;
 use sendly::{
     CreateVoiceAgentRequest, Error, IdempotentRequestOptions, RegisterEmergencyAddressRequest,
-    UpdateVoiceAgentRequest, UpdateVoiceNumberRequest, VoiceAgentToolsInput, VoiceMode,
+    UpdateVoiceAgentRequest, UpdateVoiceNumberRequest, VoiceAgentAudioFormat,
+    VoiceAgentConnectionInput, VoiceAgentKind, VoiceAgentSipMediaEncryption,
+    VoiceAgentSipTransport, VoiceAgentToolsInput, VoiceMode,
 };
 use serde_json::{json, Value};
 use wiremock::matchers::{body_json, header, header_exists, method, path};
@@ -901,6 +903,286 @@ async fn test_agents_get_not_found_maps_to_not_found() {
         }
         other => panic!("expected NotFound, got {:?}", other),
     }
+}
+
+// ==================== Bring-your-own agent Tests ====================
+
+const BYO_AGENT_ID: &str = "4d5e6f70-8192-4a3b-b5c6-d7e8f90a1b2c";
+
+fn websocket_agent_json() -> Value {
+    let mut body = agent_json();
+    body["id"] = json!(BYO_AGENT_ID);
+    body["name"] = json!("Own agent");
+    body["kind"] = json!("websocket");
+    body["connection"] = json!({
+        "url": "wss://agent.example.com/calls",
+        "audioFormat": "pcm16_24000",
+        "hasAuthToken": true,
+        "customParameters": { "tenant": "acme" }
+    });
+    body["hasSigningSecret"] = json!(true);
+    body["signingSecret"] = json!("whsec_byo_0123456789abcdef");
+    body
+}
+
+#[tokio::test]
+async fn test_agents_create_sends_kind_and_connection_and_decodes_secret() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/voice/agents"))
+        .and(header_exists("Idempotency-Key"))
+        .and(body_json(json!({
+            "name": "Own agent",
+            "kind": "websocket",
+            "connection": {
+                "url": "wss://agent.example.com/calls",
+                "audioFormat": "pcm16_24000",
+                "authToken": "tok_live_123",
+                "customParameters": { "tenant": "acme" }
+            }
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(websocket_agent_json()))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let agent = client
+        .voice()
+        .agents()
+        .create(
+            CreateVoiceAgentRequest::new("Own agent")
+                .kind(VoiceAgentKind::Websocket)
+                .connection(
+                    VoiceAgentConnectionInput::websocket("wss://agent.example.com/calls")
+                        .audio_format(VoiceAgentAudioFormat::Pcm16At24000)
+                        .auth_token("tok_live_123")
+                        .custom_parameter("tenant", "acme"),
+                ),
+        )
+        .await
+        .expect("create should succeed");
+
+    assert_eq!(agent.kind, VoiceAgentKind::Websocket);
+    assert!(agent.has_signing_secret);
+    assert_eq!(
+        agent.signing_secret.as_deref(),
+        Some("whsec_byo_0123456789abcdef")
+    );
+    let connection = agent.connection.expect("connection");
+    assert_eq!(
+        connection.url.as_deref(),
+        Some("wss://agent.example.com/calls")
+    );
+    assert_eq!(
+        connection.audio_format,
+        Some(VoiceAgentAudioFormat::Pcm16At24000)
+    );
+    assert!(connection.has_auth_token);
+    assert_eq!(
+        connection
+            .custom_parameters
+            .get("tenant")
+            .map(String::as_str),
+        Some("acme")
+    );
+    assert!(connection.base_url.is_none());
+}
+
+#[tokio::test]
+async fn test_agents_create_custom_llm_connection_body() {
+    let mock_server = setup_mock_server().await;
+    let mut body = agent_json();
+    body["kind"] = json!("custom_llm");
+    body["connection"] = json!({
+        "baseUrl": "https://llm.example.com/v1",
+        "model": "my-model",
+        "headerNames": ["X-Tenant"],
+        "hasApiKey": true
+    });
+    body["hasSigningSecret"] = json!(true);
+    body["signingSecret"] = json!("whsec_byo_new");
+    Mock::given(method("POST"))
+        .and(path("/voice/agents"))
+        .and(body_json(json!({
+            "name": "Own model",
+            "kind": "custom_llm",
+            "connection": {
+                "baseUrl": "https://llm.example.com/v1",
+                "model": "my-model",
+                "apiKey": "sk-model-key",
+                "headers": { "X-Tenant": "acme" }
+            }
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(body))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let agent = client
+        .voice()
+        .agents()
+        .create(
+            CreateVoiceAgentRequest::new("Own model")
+                .kind(VoiceAgentKind::CustomLlm)
+                .connection(
+                    VoiceAgentConnectionInput::custom_llm("https://llm.example.com/v1", "my-model")
+                        .api_key("sk-model-key")
+                        .header("X-Tenant", "acme"),
+                ),
+        )
+        .await
+        .expect("create should succeed");
+
+    assert_eq!(agent.kind, VoiceAgentKind::CustomLlm);
+    let connection = agent.connection.expect("connection");
+    assert_eq!(connection.model.as_deref(), Some("my-model"));
+    assert_eq!(connection.header_names, vec!["X-Tenant".to_string()]);
+    assert!(connection.has_api_key);
+}
+
+#[tokio::test]
+async fn test_agents_create_byo_not_enabled_surfaces_code() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/voice/agents"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "error": "byo_agents_not_enabled",
+            "message": "Bring-your-own agents aren't switched on for this workspace."
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .voice()
+        .agents()
+        .create(
+            CreateVoiceAgentRequest::new("Own agent")
+                .kind(VoiceAgentKind::Sip)
+                .connection(VoiceAgentConnectionInput::sip(
+                    "sip:+15125550100@sip.example.com",
+                )),
+        )
+        .await;
+
+    match result.unwrap_err() {
+        Error::Api {
+            status_code, code, ..
+        } => {
+            assert_eq!(status_code, 403);
+            assert_eq!(code.as_deref(), Some("byo_agents_not_enabled"));
+        }
+        other => panic!("expected Api, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_agents_update_sends_sip_connection_nulls_and_rotation() {
+    let mock_server = setup_mock_server().await;
+    let mut body = agent_json();
+    body["id"] = json!(BYO_AGENT_ID);
+    body["kind"] = json!("sip");
+    body["connection"] = json!({
+        "uri": "sips:+15125550100@sip.example.com",
+        "transport": "tls",
+        "mediaEncryption": "require",
+        "username": null,
+        "hasPassword": false,
+        "headers": {}
+    });
+    body["hasSigningSecret"] = json!(true);
+    body["signingSecret"] = json!("whsec_byo_rotated");
+    Mock::given(method("PATCH"))
+        .and(path(format!("/voice/agents/{}", BYO_AGENT_ID)))
+        .and(header_exists("Idempotency-Key"))
+        .and(body_json(json!({
+            "kind": "sip",
+            "connection": {
+                "uri": "sips:+15125550100@sip.example.com",
+                "transport": "tls",
+                "mediaEncryption": "require",
+                "username": null,
+                "password": null,
+                "headers": null
+            },
+            "rotateSigningSecret": true
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let agent = client
+        .voice()
+        .agents()
+        .update(
+            BYO_AGENT_ID,
+            UpdateVoiceAgentRequest::new()
+                .kind(VoiceAgentKind::Sip)
+                .connection(
+                    VoiceAgentConnectionInput::sip("sips:+15125550100@sip.example.com")
+                        .transport(VoiceAgentSipTransport::Tls)
+                        .media_encryption(VoiceAgentSipMediaEncryption::Require)
+                        .clear_username()
+                        .clear_password()
+                        .clear_headers(),
+                )
+                .rotate_signing_secret(),
+        )
+        .await
+        .expect("update should succeed");
+
+    assert_eq!(agent.kind, VoiceAgentKind::Sip);
+    assert_eq!(agent.signing_secret.as_deref(), Some("whsec_byo_rotated"));
+    let connection = agent.connection.expect("connection");
+    assert_eq!(connection.transport, Some(VoiceAgentSipTransport::Tls));
+    assert_eq!(
+        connection.media_encryption,
+        Some(VoiceAgentSipMediaEncryption::Require)
+    );
+    assert_eq!(connection.username, None);
+    assert!(!connection.has_password);
+}
+
+#[tokio::test]
+async fn test_agents_update_omits_kept_secrets_and_false_rotation() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("PATCH"))
+        .and(path(format!("/voice/agents/{}", BYO_AGENT_ID)))
+        .respond_with(ResponseTemplate::new(200).set_body_json(websocket_agent_json()))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let mut request = UpdateVoiceAgentRequest::new()
+        .connection(VoiceAgentConnectionInput::new().model("my-model-v2"));
+    request.rotate_signing_secret = false;
+    client
+        .voice()
+        .agents()
+        .update(BYO_AGENT_ID, request)
+        .await
+        .expect("update should succeed");
+
+    assert_eq!(
+        body_of_request(&mock_server, 0).await,
+        json!({ "connection": { "model": "my-model-v2" } })
+    );
+}
+
+#[test]
+fn test_agent_without_byo_fields_defaults_to_sendly() {
+    let agent: sendly::VoiceAgent = serde_json::from_value(agent_json()).expect("decodes");
+    assert_eq!(agent.kind, VoiceAgentKind::Sendly);
+    assert!(agent.connection.is_none());
+    assert!(!agent.has_signing_secret);
+    assert!(agent.signing_secret.is_none());
+
+    let mut body = agent_json();
+    body["kind"] = json!("future_kind");
+    body["connection"] = json!(null);
+    let agent: sendly::VoiceAgent = serde_json::from_value(body).expect("decodes");
+    assert_eq!(agent.kind, VoiceAgentKind::Unknown);
 }
 
 // ==================== voices() Tests ====================

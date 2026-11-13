@@ -1871,8 +1871,8 @@ early, and fetch recordings. Calls go to US and Canadian numbers from a
 workspace number that is voice-enabled and has an emergency address
 registered. Set up numbers and agents with `client.voice()` (see
 [Configure voice](#configure-voice)) or in the dashboard. Reads need the
-`calls:read` scope and writes `calls:write`; placing or ending a call also
-needs a live API key.
+`calls:read` scope and writes `calls:write`; placing, ending or transferring a
+call also needs a live API key.
 
 Calls are billed per started minute, prepaid from your credit balance: 2
 credits/min outbound plus 8 credits/min while an AI agent is on the line, so an
@@ -1881,7 +1881,9 @@ Voice is being enabled workspace by workspace; until it is on for yours, these
 calls answer 404 `voice_not_enabled` (`Error::NotFound`).
 
 ```rust
-use sendly::{CallRecordingStatus, CallStatus, CreateCallRequest, ListCallsOptions, Sendly};
+use sendly::{
+    CallRecordingStatus, CallStatus, CreateCallRequest, ListCallsOptions, Sendly, TransferCallRequest,
+};
 
 let client = Sendly::new("sk_live_v1_xxx");
 
@@ -1918,6 +1920,15 @@ println!("{} of {} (more: {})", page.data.len(), page.pagination.total, page.pag
 // End a call early (ringing -> cancelled, active -> completed; ended calls come back unchanged)
 client.calls().hangup(&call.id).await?;
 
+// Hand the caller on an incoming call to a person. TransferCallRequest::new()
+// without to() uses the agent's transfer number; any other number needs
+// calling out switched on. It answers at once with transfer.status Pending.
+let call = client
+    .calls()
+    .transfer(&call.id, TransferCallRequest::new().to("+15125550199"))
+    .await?;
+println!("{:?}", call.transfer.map(|t| t.status)); // Some(Pending)
+
 // Fetch the recording: the URL is signed and valid for five minutes
 let recording = client.calls().recording(&call.id).await?;
 if recording.status == CallRecordingStatus::Ready {
@@ -1930,7 +1941,8 @@ Refusals map onto the SDK's error variants: 402 `insufficient_credits` is
 `agent_not_found`, `number_not_found`) are `Error::NotFound`; 400s
 (`agent_required`, `invalid_number`, `invalid_metadata`, `from_number_required`,
 `from_number_not_supported` for a from number outside the US and Canada,
-`destination_not_supported`) are `Error::Validation`; 429s (`rate_limit_exceeded`,
+`destination_not_supported`, `transfer_to_required`) are `Error::Validation`;
+429s (`rate_limit_exceeded`,
 and `daily_call_limit`, which lasts until tomorrow and is not retryable) are
 `Error::RateLimit`; everything else arrives as `Error::Api` with `code` set, so
 you can match on it:
@@ -1971,7 +1983,10 @@ call.ended_at          // Option<String>
 call.duration_secs     // i64 (answered seconds; 0 until ended)
 call.credits_charged   // i64
 call.billing           // CallBilling: Metered | Settled | Unbilled
-call.hangup_class      // Option<String> (why it ended, e.g. "normal", "ring_timeout", "credits_exhausted")
+call.hangup_class      // Option<String> (why it ended, e.g. "normal", "ring_timeout", "transferred")
+call.agent_kind        // Option<VoiceAgentKind>: Sendly | CustomLlm | Sip | Websocket (None when no agent answered)
+call.agent_fallback    // bool (your own agent couldn't be reached, so Sendly transferred the caller or took a message)
+call.transfer          // Option<CallTransfer> { to, status: Pending | Completed | Failed, failure_reason }
 call.recording_status  // Option<CallRecordingStatus>: Recording | Ready | Failed
 call.metadata          // HashMap<String, String>
 call.transcript        // Option<Vec<CallTranscriptLine>> (get() on agent calls only)
@@ -1982,7 +1997,12 @@ call.is_ended()  // reached a terminal status
 ```
 
 Every enum has an `Unknown` fallback, so a value added by a later API release
-never fails decoding.
+never fails decoding. `ListCallsOptions::agent_kind` filters calls by the kind
+of agent that answered. Transfer refusals are 409 `call_not_active`,
+`call_not_transferable` (not an incoming phone call) or `transfer_in_progress`,
+and 403 `outbound_not_enabled`, all `Error::Api`. A `sip` or `websocket` agent
+answers incoming calls only, so `create()` with one is 409
+`agent_kind_unsupported`.
 
 `channel` says how the call travelled: the phone network, WhatsApp or the
 browser. The `call.started`, `call.completed` and `call.recording.ready`
@@ -2126,6 +2146,10 @@ agent.voice_label         // String
 agent.language            // String
 agent.greeting            // String ("" when unset; said when it answers an inbound call)
 agent.instructions        // String
+agent.kind                // VoiceAgentKind: Sendly | CustomLlm | Sip | Websocket
+agent.connection          // Option<VoiceAgentConnection> (your own agents; secrets never returned)
+agent.has_signing_secret  // bool
+agent.signing_secret      // Option<String> (only on the response that made it)
 agent.tools               // VoiceAgentTools { send_sms, transfer_to }
 agent.can_send_sms        // bool (the agent holds its own scoped sending key)
 agent.calls_handled       // i64
@@ -2134,14 +2158,60 @@ agent.created_at          // String (ISO 8601)
 agent.updated_at          // String (ISO 8601)
 ```
 
-`tools.transfer_to` does not transfer calls yet: while it is set, a caller who
-asks for a person is told the message will be passed on, and the agent takes
-their name and number.
+`tools.transfer_to` is the number the agent transfers a caller to when asked
+for a person, and the number `calls().transfer()` uses without a `to`.
 
 Reads round out the same two sub-resources: `voice().numbers().get(number)`
 takes a number's id or its E.164 form (the SDK percent-encodes it), and
 `voice().agents().get(id)` and `voice().agents().list()` fetch one agent or all
 of them with their call stats.
+
+### Bring your own agent
+
+An agent's `kind` says who answers its calls: `VoiceAgentKind::Sendly` (the
+default), or one of your own: `CustomLlm` (Sendly listens and speaks, your chat
+completions endpoint writes each reply), `Sip` (Sendly connects the caller to
+your SIP address) or `Websocket` (Sendly streams the call audio to your
+`wss://` server). Your own agents need the workspace's bring-your-own-agent
+feature, or the API answers 403 `byo_agents_not_enabled` (`Error::Api`).
+
+```rust
+use sendly::{CreateVoiceAgentRequest, UpdateVoiceAgentRequest, VoiceAgentConnectionInput, VoiceAgentKind};
+
+let agent = client
+    .voice()
+    .agents()
+    .create(
+        CreateVoiceAgentRequest::new("Own model")
+            .kind(VoiceAgentKind::CustomLlm)
+            .connection(
+                VoiceAgentConnectionInput::custom_llm("https://llm.example.com/v1", "my-model")
+                    .api_key("sk-your-model-key"),
+            ),
+    )
+    .await?;
+// Save it now; it is never shown again. Sendly signs every request to your
+// agent with it in X-Sendly-Signature (t=<unix>,v1=<hex HMAC-SHA256>).
+let secret = agent.signing_secret.clone();
+
+// Change the model, remove the saved key (sends apiKey: null) and make a new
+// signing secret; the old one stops working at once.
+let agent = client
+    .voice()
+    .agents()
+    .update(
+        &agent.id,
+        UpdateVoiceAgentRequest::new()
+            .connection(VoiceAgentConnectionInput::new().model("my-model-v2").clear_api_key())
+            .rotate_signing_secret(),
+    )
+    .await?;
+```
+
+On an update with the same `kind`, the connection is merged into the saved one:
+a secret you leave unset is kept, and a `clear_*` method removes it. Switching
+`kind` to `VoiceAgentKind::Sendly` removes the connection and the signing
+secret.
 
 ## Error Handling
 

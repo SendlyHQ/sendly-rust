@@ -5,7 +5,8 @@ use regex::Regex;
 use sendly::webhooks::Webhooks;
 use sendly::{
     CallBilling, CallDirection, CallHandledBy, CallKind, CallRecordingStatus, CallStatus,
-    CallTranscriptSpeaker, CreateCallRequest, Error, IdempotentRequestOptions, ListCallsOptions,
+    CallTranscriptSpeaker, CallTransferFailureReason, CallTransferStatus, CreateCallRequest, Error,
+    IdempotentRequestOptions, ListCallsOptions, TransferCallRequest, VoiceAgentKind,
 };
 use serde_json::{json, Value};
 use wiremock::matchers::{body_json, header, header_exists, method, path, query_param};
@@ -350,6 +351,7 @@ async fn test_list_encodes_every_filter() {
         .and(query_param("direction", "outbound"))
         .and(query_param("kind", "pstn"))
         .and(query_param("agentId", AGENT_ID))
+        .and(query_param("agentKind", "custom_llm"))
         .and(query_param("to", "+15555550123"))
         .and(query_param("from", "+15555550188"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -370,6 +372,7 @@ async fn test_list_encodes_every_filter() {
                 .direction(CallDirection::Outbound)
                 .kind(CallKind::Pstn)
                 .agent_id(AGENT_ID)
+                .agent_kind(VoiceAgentKind::CustomLlm)
                 .to("+15555550123")
                 .from_number("+15555550188"),
         ))
@@ -651,6 +654,14 @@ async fn test_id_methods_require_an_id() {
         client.calls().recording("").await.unwrap_err(),
         Error::Validation { .. }
     ));
+    assert!(matches!(
+        client
+            .calls()
+            .transfer("", TransferCallRequest::new())
+            .await
+            .unwrap_err(),
+        Error::Validation { .. }
+    ));
 
     let requests = mock_server.received_requests().await.unwrap();
     assert!(requests.is_empty(), "no request should reach the server");
@@ -746,6 +757,165 @@ async fn test_hangup_ended_call_returns_it_unchanged() {
 
     assert_eq!(call.status, CallStatus::NoAnswer);
     assert_eq!(call.hangup_class.as_deref(), Some("ring_timeout"));
+}
+
+// ==================== transfer() Tests ====================
+
+fn transfer_pending_json() -> Value {
+    let mut body = call_json("active");
+    body["direction"] = json!("inbound");
+    body["answeredAt"] = json!("2026-09-12T14:03:19.000Z");
+    body["agentKind"] = json!("websocket");
+    body["agentFallback"] = json!(false);
+    body["transfer"] = json!({ "to": "+15555550102", "status": "pending", "failureReason": null });
+    body
+}
+
+#[tokio::test]
+async fn test_transfer_sends_to_and_decodes_pending_transfer() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/calls/{}/transfer", CALL_ID)))
+        .and(header_exists("Idempotency-Key"))
+        .and(body_json(json!({ "to": "+15555550102" })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(transfer_pending_json()))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let call = client
+        .calls()
+        .transfer(CALL_ID, TransferCallRequest::new().to("+15555550102"))
+        .await
+        .expect("transfer should succeed");
+
+    assert_eq!(call.status, CallStatus::Active);
+    assert_eq!(call.agent_kind, Some(VoiceAgentKind::Websocket));
+    assert!(!call.agent_fallback);
+    let transfer = call.transfer.expect("transfer");
+    assert_eq!(transfer.to, "+15555550102");
+    assert_eq!(transfer.status, CallTransferStatus::Pending);
+    assert_eq!(transfer.failure_reason, None);
+
+    let key = idempotency_key_of_request(&mock_server, 0)
+        .await
+        .expect("Idempotency-Key present");
+    assert!(Regex::new(AUTO_KEY_PATTERN).unwrap().is_match(&key));
+}
+
+#[tokio::test]
+async fn test_transfer_without_to_sends_empty_object_and_custom_key() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/calls/call%2F1/transfer"))
+        .and(header("Idempotency-Key", "transfer-once"))
+        .and(body_json(json!({})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(transfer_pending_json()))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .calls()
+        .transfer_with_options(
+            "call/1",
+            TransferCallRequest::new(),
+            IdempotentRequestOptions::new().idempotency_key("transfer-once"),
+        )
+        .await;
+
+    assert!(result.is_ok(), "{:?}", result.err());
+}
+
+#[tokio::test]
+async fn test_transfer_refusals_surface_codes() {
+    for (status, code) in [
+        (400, "transfer_to_required"),
+        (403, "outbound_not_enabled"),
+        (409, "call_not_active"),
+        (409, "call_not_transferable"),
+        (409, "transfer_in_progress"),
+    ] {
+        let mock_server = setup_mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(format!("/calls/{}/transfer", CALL_ID)))
+            .respond_with(ResponseTemplate::new(status).set_body_json(json!({
+                "error": code,
+                "message": "Refused."
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = create_test_client(&mock_server.uri());
+        let err = client
+            .calls()
+            .transfer(CALL_ID, TransferCallRequest::new())
+            .await
+            .unwrap_err();
+        match (status, err) {
+            (400, Error::Validation { .. }) => {}
+            (
+                _,
+                Error::Api {
+                    status_code,
+                    code: got,
+                    ..
+                },
+            ) => {
+                assert_eq!(status_code, status);
+                assert_eq!(got.as_deref(), Some(code));
+            }
+            (_, other) => panic!("{}: unexpected error {:?}", code, other),
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_transfer_without_credits_maps_to_credits_error() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/calls/{}/transfer", CALL_ID)))
+        .respond_with(ResponseTemplate::new(402).set_body_json(json!({
+            "error": "insufficient_credits",
+            "message": "Transfers need credits on the workspace. Current balance: 0.",
+            "creditsNeeded": 1,
+            "currentBalance": 0
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let err = client
+        .calls()
+        .transfer(CALL_ID, TransferCallRequest::new())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, Error::InsufficientCredits { .. }),
+        "{:?}",
+        err
+    );
+}
+
+#[test]
+fn test_call_decodes_failed_transfer_fallback_and_missing_fields() {
+    let mut body = transfer_pending_json();
+    body["agentFallback"] = json!(true);
+    body["transfer"] =
+        json!({ "to": "+15555550102", "status": "failed", "failureReason": "no_answer" });
+    let call: sendly::Call = serde_json::from_value(body).expect("decodes");
+    assert!(call.agent_fallback);
+    let transfer = call.transfer.expect("transfer");
+    assert_eq!(transfer.status, CallTransferStatus::Failed);
+    assert_eq!(
+        transfer.failure_reason,
+        Some(CallTransferFailureReason::NoAnswer)
+    );
+
+    let call: sendly::Call = serde_json::from_value(call_json("ringing")).expect("decodes");
+    assert_eq!(call.agent_kind, None);
+    assert!(!call.agent_fallback);
+    assert!(call.transfer.is_none());
 }
 
 // ==================== recording() Tests ====================
