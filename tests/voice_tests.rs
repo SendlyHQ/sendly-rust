@@ -4,9 +4,10 @@ use common::{create_test_client, setup_mock_server, TEST_API_KEY};
 use regex::Regex;
 use sendly::{
     CreateVoiceAgentRequest, Error, IdempotentRequestOptions, RegisterEmergencyAddressRequest,
-    UpdateVoiceAgentRequest, UpdateVoiceNumberRequest, VoiceAgentAudioFormat,
-    VoiceAgentConnectionInput, VoiceAgentKind, VoiceAgentSipMediaEncryption,
-    VoiceAgentSipTransport, VoiceAgentToolsInput, VoiceMode,
+    TestVoiceAgentRequest, UpdateVoiceAgentRequest, UpdateVoiceNumberRequest,
+    VoiceAgentAudioFormat, VoiceAgentConnectionInput, VoiceAgentKind, VoiceAgentSipMediaEncryption,
+    VoiceAgentSipTransport, VoiceAgentTestOutcome, VoiceAgentTestStepName, VoiceAgentToolsInput,
+    VoiceMode,
 };
 use serde_json::{json, Value};
 use wiremock::matchers::{body_json, header, header_exists, method, path};
@@ -1183,6 +1184,173 @@ fn test_agent_without_byo_fields_defaults_to_sendly() {
     body["connection"] = json!(null);
     let agent: sendly::VoiceAgent = serde_json::from_value(body).expect("decodes");
     assert_eq!(agent.kind, VoiceAgentKind::Unknown);
+}
+
+fn agent_test_json() -> Value {
+    json!({
+        "ok": true,
+        "outcome": "ok",
+        "message": "Your agent's server answered in 84 ms.",
+        "status": 200,
+        "latencyMs": 84,
+        "signed": false,
+        "steps": [
+            { "step": "address", "ok": true, "detail": "sip.example.com points to a public server." },
+            { "step": "connect", "ok": true, "detail": "Connected over TLS to sip.example.com:5061 in 41 ms." },
+            { "step": "reply", "ok": true, "detail": "SIP 200 OK" }
+        ]
+    })
+}
+
+#[tokio::test]
+async fn test_agents_test_sends_settings_without_idempotency_key() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/voice/agents/{}/test", AGENT_ID)))
+        .and(header(
+            "Authorization",
+            format!("Bearer {}", TEST_API_KEY).as_str(),
+        ))
+        .and(body_json(json!({
+            "kind": "sip",
+            "connection": {
+                "uri": "sip:+15125550100@sip.example.com",
+                "transport": "tls"
+            },
+            "instructions": "Say hello."
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(agent_test_json()))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .voice()
+        .agents()
+        .test(
+            AGENT_ID,
+            TestVoiceAgentRequest::new()
+                .kind(VoiceAgentKind::Sip)
+                .connection(
+                    VoiceAgentConnectionInput::sip("sip:+15125550100@sip.example.com")
+                        .transport(VoiceAgentSipTransport::Tls),
+                )
+                .instructions("Say hello."),
+        )
+        .await
+        .expect("test should succeed");
+
+    assert_eq!(idempotency_key_of_request(&mock_server, 0).await, None);
+    assert!(result.ok);
+    assert_eq!(result.outcome, VoiceAgentTestOutcome::Ok);
+    assert_eq!(result.message, "Your agent's server answered in 84 ms.");
+    assert_eq!(result.status, Some(200));
+    assert_eq!(result.latency_ms, Some(84));
+    assert!(!result.signed);
+    assert_eq!(result.steps.len(), 3);
+    assert_eq!(result.steps[0].step, VoiceAgentTestStepName::Address);
+    assert!(result.steps[0].ok);
+    assert_eq!(result.steps[1].step, VoiceAgentTestStepName::Connect);
+    assert_eq!(result.steps[2].step, VoiceAgentTestStepName::Reply);
+    assert_eq!(result.steps[2].detail, "SIP 200 OK");
+}
+
+#[tokio::test]
+async fn test_agents_test_without_settings_sends_empty_object() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/voice/agents/{}/test", AGENT_ID)))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "ok": false,
+            "outcome": "auth_failed",
+            "message": "Your agent refused the key.",
+            "status": 401,
+            "latencyMs": null,
+            "signed": true,
+            "steps": [
+                { "step": "address", "ok": true, "detail": "llm.example.com points to a public server." },
+                { "step": "reply", "ok": false, "detail": "HTTP 401" }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .voice()
+        .agents()
+        .test(AGENT_ID, TestVoiceAgentRequest::new())
+        .await
+        .expect("a failed test is still a successful request");
+
+    assert_eq!(body_of_request(&mock_server, 0).await, json!({}));
+    assert!(!result.ok);
+    assert_eq!(result.outcome, VoiceAgentTestOutcome::AuthFailed);
+    assert_eq!(result.outcome.to_string(), "auth_failed");
+    assert_eq!(result.status, Some(401));
+    assert_eq!(result.latency_ms, None);
+    assert!(result.signed);
+    assert!(!result.steps[1].ok);
+}
+
+#[tokio::test]
+async fn test_agents_test_tolerates_unknown_outcome_and_step() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/voice/agents/{}/test", AGENT_ID)))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "ok": false,
+            "outcome": "future_outcome",
+            "message": "Something new.",
+            "status": null,
+            "latencyMs": null,
+            "signed": false,
+            "steps": [{ "step": "future_step", "ok": false, "detail": "Something new happened." }]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let result = client
+        .voice()
+        .agents()
+        .test(AGENT_ID, TestVoiceAgentRequest::new())
+        .await
+        .expect("test should succeed");
+
+    assert_eq!(result.outcome, VoiceAgentTestOutcome::Unknown);
+    assert_eq!(result.status, None);
+    assert_eq!(result.steps[0].step, VoiceAgentTestStepName::Unknown);
+}
+
+#[tokio::test]
+async fn test_agents_test_rate_limited_and_requires_id() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/voice/agents/{}/test", AGENT_ID)))
+        .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+            "error": "rate_limit_exceeded",
+            "message": "Too many tests. Try again in a minute."
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let err = client
+        .voice()
+        .agents()
+        .test(AGENT_ID, TestVoiceAgentRequest::new())
+        .await
+        .expect_err("429 should fail");
+    assert!(matches!(err, Error::RateLimit { .. }), "got {err:?}");
+
+    let err = client
+        .voice()
+        .agents()
+        .test("  ", TestVoiceAgentRequest::new())
+        .await
+        .expect_err("empty id should fail");
+    assert!(matches!(err, Error::Validation { .. }), "got {err:?}");
 }
 
 // ==================== voices() Tests ====================

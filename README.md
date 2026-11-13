@@ -2213,6 +2213,48 @@ a secret you leave unset is kept, and a `clear_*` method removes it. Switching
 `kind` to `VoiceAgentKind::Sendly` removes the connection and the signing
 secret.
 
+#### Test the connection
+
+`test` reaches your agent the way a call would, without placing one.
+`TestVoiceAgentRequest::new()` tests the saved settings; set `connection` to try
+new ones before saving them (nothing is saved). A failed test is still `Ok`, so
+check `ok`. A workspace can run 10 tests a minute.
+
+```rust
+use sendly::{TestVoiceAgentRequest, VoiceAgentConnectionInput, VoiceAgentKind, VoiceAgentSipTransport};
+
+let result = client
+    .voice()
+    .agents()
+    .test(&agent.id, TestVoiceAgentRequest::new())
+    .await?;
+if !result.ok {
+    println!("{} {}", result.outcome, result.message); // e.g. auth_failed
+}
+for step in &result.steps {
+    println!("{} {} {}", step.step, step.ok, step.detail);
+}
+
+// Try a new SIP address before saving it
+let result = client
+    .voice()
+    .agents()
+    .test(
+        &agent.id,
+        TestVoiceAgentRequest::new().kind(VoiceAgentKind::Sip).connection(
+            VoiceAgentConnectionInput::sip("sip:+15125550100@sip.example.com")
+                .transport(VoiceAgentSipTransport::Tls),
+        ),
+    )
+    .await?;
+```
+
+`outcome` is a `VoiceAgentTestOutcome` (`Ok`, `BlockedDestination`,
+`Unreachable`, `Timeout`, `TlsFailed`, `AuthRequired`, `AuthFailed`,
+`NotFound`, `Rejected`, `BadReply`, or `Unknown` for a value added later). A
+SIP server answering shows the address and credentials work, not which agent
+picks up.
+
 ## Error Handling
 
 ```rust

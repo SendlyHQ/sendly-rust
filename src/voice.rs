@@ -1121,6 +1121,193 @@ impl UpdateVoiceAgentRequest {
     }
 }
 
+/// Settings to test with [`VoiceAgentsResource::test`].
+///
+/// [`TestVoiceAgentRequest::new`] tests the saved connection; set
+/// [`connection`](Self::connection) to test settings before saving them.
+/// Unset fields are left out of the request. This type is
+/// `#[non_exhaustive]`, so external crates must use the constructor rather
+/// than a struct literal.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct TestVoiceAgentRequest {
+    /// The kind of the settings in `connection`. Defaults to the agent's own
+    /// kind. Needed to test settings of another kind, such as on a `sendly`
+    /// agent before switching it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<VoiceAgentKind>,
+    /// Settings to test instead of the saved ones. Nothing is saved. For the
+    /// agent's own kind, a secret left out is taken from the saved
+    /// connection, while the host stays the same.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection: Option<VoiceAgentConnectionInput>,
+    /// For `custom_llm`: the system prompt to send, up to 4000 characters.
+    /// Defaults to the agent's instructions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+}
+
+impl TestVoiceAgentRequest {
+    /// Creates an empty request that tests the saved connection.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the kind of the settings in `connection`.
+    pub fn kind(mut self, kind: VoiceAgentKind) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    /// Sets the settings to test instead of the saved ones.
+    pub fn connection(mut self, connection: VoiceAgentConnectionInput) -> Self {
+        self.connection = Some(connection);
+        self
+    }
+
+    /// Sets the system prompt to send (`custom_llm`).
+    pub fn instructions(mut self, instructions: impl Into<String>) -> Self {
+        self.instructions = Some(instructions.into());
+        self
+    }
+}
+
+/// What a connection test found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum VoiceAgentTestOutcome {
+    /// The agent answered the way a call needs.
+    Ok,
+    /// The host isn't a public address.
+    BlockedDestination,
+    /// The agent couldn't be reached.
+    Unreachable,
+    /// The agent didn't answer in time.
+    Timeout,
+    /// The TLS handshake failed.
+    TlsFailed,
+    /// The SIP server wants credentials the agent doesn't have.
+    AuthRequired,
+    /// The key, token or credentials were refused.
+    AuthFailed,
+    /// A wrong path or SIP user.
+    NotFound,
+    /// Any other refusal.
+    Rejected,
+    /// An answer outside the protocol.
+    BadReply,
+    /// An outcome this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+impl VoiceAgentTestOutcome {
+    /// The outcome as the API spells it (e.g. `"auth_failed"`).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::BlockedDestination => "blocked_destination",
+            Self::Unreachable => "unreachable",
+            Self::Timeout => "timeout",
+            Self::TlsFailed => "tls_failed",
+            Self::AuthRequired => "auth_required",
+            Self::AuthFailed => "auth_failed",
+            Self::NotFound => "not_found",
+            Self::Rejected => "rejected",
+            Self::BadReply => "bad_reply",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for VoiceAgentTestOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Which step of a connection test a [`VoiceAgentTestStep`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum VoiceAgentTestStepName {
+    /// The host resolved to a public address.
+    Address,
+    /// A connection opened.
+    Connect,
+    /// The SIP server accepted the credentials.
+    Login,
+    /// The agent answered as it should.
+    Reply,
+    /// A step this SDK version doesn't know yet.
+    #[serde(other)]
+    Unknown,
+}
+
+impl VoiceAgentTestStepName {
+    /// The step as the API spells it.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Address => "address",
+            Self::Connect => "connect",
+            Self::Login => "login",
+            Self::Reply => "reply",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for VoiceAgentTestStepName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// One step of a connection test.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct VoiceAgentTestStep {
+    /// Which step this is.
+    pub step: VoiceAgentTestStepName,
+    /// Whether the step worked.
+    pub ok: bool,
+    /// What happened at this step, in plain words.
+    #[serde(default)]
+    pub detail: String,
+}
+
+/// Response from [`VoiceAgentsResource::test`]. A failed test is still a
+/// successful request: check `ok`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct VoiceAgentTest {
+    /// Whether the agent answered the way a call needs.
+    pub ok: bool,
+    /// [`VoiceAgentTestOutcome::Ok`], or why not.
+    pub outcome: VoiceAgentTestOutcome,
+    /// One or two sentences to show a person: what happened and what to
+    /// change.
+    #[serde(default)]
+    pub message: String,
+    /// The HTTP or SIP status the agent answered with, if any.
+    #[serde(default)]
+    pub status: Option<u16>,
+    /// How long the agent took to answer, if known.
+    #[serde(default)]
+    pub latency_ms: Option<u64>,
+    /// Whether the request carried `X-Sendly-Signature`, as calls do. Always
+    /// `false` for `sip`.
+    #[serde(default)]
+    pub signed: bool,
+    /// Each step tried, in order, up to the first that failed.
+    #[serde(default)]
+    pub steps: Vec<VoiceAgentTestStep>,
+}
+
 /// A voice an agent can speak with.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1546,6 +1733,75 @@ impl<'a> VoiceAgentsResource<'a> {
         let response = self
             .client
             .patch_with_idempotency(&path, &request, options.idempotency_key.as_deref(), true)
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    /// Tests your own agent's connection the way a call would reach it,
+    /// without placing one. Requires the `calls:write` scope and a live API
+    /// key.
+    ///
+    /// `custom_llm` gets a signed, streamed chat completion with a test
+    /// message. `websocket` gets a signed connection with `connected`, a
+    /// `start` carrying `test: true`, half a second of silence and a `stop`
+    /// with reason `test_finished`. `sip` gets an `OPTIONS` request,
+    /// answered with the saved credentials if the server asks; a SIP server
+    /// answering shows the address and credentials work, not which agent
+    /// picks up.
+    ///
+    /// Pass [`TestVoiceAgentRequest::new`] to test the saved connection, or
+    /// set its [`connection`](TestVoiceAgentRequest::connection) to test
+    /// settings before saving them. A failed test is still `Ok`: check
+    /// [`VoiceAgentTest::ok`]. The API answers 400 `invalid_request`
+    /// ([`Error::Validation`]) when the agent is a `sendly` agent and no
+    /// `kind` was sent, 403 `byo_agents_not_enabled` ([`Error::Api`]) when
+    /// the workspace's bring-your-own-agent feature is off, 404
+    /// `agent_not_found` ([`Error::NotFound`]) and, after 10 tests in a
+    /// minute, 429 ([`Error::RateLimit`]). No `Idempotency-Key` is sent.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The agent id
+    /// * `request` - Settings to test instead of the saved ones (see
+    ///   [`TestVoiceAgentRequest`])
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{Sendly, TestVoiceAgentRequest, VoiceAgentConnectionInput, VoiceAgentSipTransport};
+    ///
+    /// # async fn example() -> sendly::Result<()> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    ///
+    /// let result = client
+    ///     .voice()
+    ///     .agents()
+    ///     .test("3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b", TestVoiceAgentRequest::new())
+    ///     .await?;
+    /// if !result.ok {
+    ///     println!("{} {}", result.outcome, result.message);
+    /// }
+    ///
+    /// // Try a new address before saving it
+    /// client
+    ///     .voice()
+    ///     .agents()
+    ///     .test(
+    ///         "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b",
+    ///         TestVoiceAgentRequest::new().connection(
+    ///             VoiceAgentConnectionInput::sip("sip:+15125550100@sip.example.com")
+    ///                 .transport(VoiceAgentSipTransport::Tls),
+    ///         ),
+    ///     )
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn test(&self, id: &str, request: TestVoiceAgentRequest) -> Result<VoiceAgentTest> {
+        let path = format!("/voice/agents/{}/test", encode_agent_id(id)?);
+        let response = self
+            .client
+            .post_with_idempotency(&path, &request, None, false)
             .await?;
         Ok(response.json().await?)
     }
