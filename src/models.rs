@@ -178,6 +178,17 @@ pub struct Message {
     /// On an SMS fallback, the id of the WhatsApp message it replaced.
     #[serde(default, alias = "fallbackOf")]
     pub fallback_of: Option<String>,
+    /// The channel and format the message was sent in: `sms`, `mms`,
+    /// `whatsapp` or `rcs`. A value the API adds later comes through
+    /// unchanged.
+    #[serde(default, rename = "messageFormat")]
+    pub message_format: Option<String>,
+    /// The batch that sent the message, for a batch message.
+    #[serde(default, rename = "batchId")]
+    pub batch_id: Option<String>,
+    /// The media sent with the message, when it has media.
+    #[serde(default, rename = "mediaUrls")]
+    pub media_urls: Option<Vec<String>>,
 }
 
 fn default_segments() -> i32 {
@@ -722,7 +733,11 @@ impl std::fmt::Display for ScheduledMessageStatus {
 }
 
 /// A scheduled SMS message.
+///
+/// This type is `#[non_exhaustive]`: it is read from the API, and fields the
+/// API adds later are not breaking changes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScheduledMessage {
     /// Unique scheduled message identifier.
     pub id: String,
@@ -736,6 +751,11 @@ pub struct ScheduledMessage {
     /// When the message is scheduled to be sent (ISO 8601).
     #[serde(alias = "scheduledAt")]
     pub scheduled_at: String,
+    /// The time zone label the message was scheduled with: the `timezone`
+    /// sent, or `UTC`. It is a label only and does not change when the
+    /// message goes.
+    #[serde(default)]
+    pub timezone: Option<String>,
     /// Scheduled message status.
     pub status: ScheduledMessageStatus,
     /// Credits reserved for this message.
@@ -776,7 +796,12 @@ impl ScheduledMessage {
 }
 
 /// Request to schedule an SMS message.
-#[derive(Debug, Clone, Serialize)]
+///
+/// Construct with [`ScheduleMessageRequest::new`] and the builder methods.
+/// This type is `#[non_exhaustive]`, so external crates must use the
+/// constructor rather than a struct literal.
+#[derive(Debug, Clone, Default, Serialize)]
+#[non_exhaustive]
 pub struct ScheduleMessageRequest {
     /// Recipient phone number in E.164 format.
     pub to: String,
@@ -785,6 +810,12 @@ pub struct ScheduleMessageRequest {
     /// When to send the message (ISO 8601).
     #[serde(rename = "scheduledAt")]
     pub scheduled_at: String,
+    /// A time zone label stored with the message and returned as sent, such
+    /// as `America/New_York`. It does not change when the message goes:
+    /// `scheduled_at` is read as given, so include its offset or `Z`. The API
+    /// stores `UTC` when it is left out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
     /// Sender ID or phone number (optional).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
@@ -794,6 +825,63 @@ pub struct ScheduleMessageRequest {
     /// Custom metadata to attach to the message (max 4KB).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+impl ScheduleMessageRequest {
+    /// Creates a request to send `text` to `to` at `scheduled_at` (ISO 8601,
+    /// with its offset or `Z`).
+    pub fn new(
+        to: impl Into<String>,
+        text: impl Into<String>,
+        scheduled_at: impl Into<String>,
+    ) -> Self {
+        Self {
+            to: to.into(),
+            text: text.into(),
+            scheduled_at: scheduled_at.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Sets the time zone label stored with the message. It is a label
+    /// only: it does not change how `scheduled_at` is read.
+    pub fn timezone(mut self, timezone: impl Into<String>) -> Self {
+        self.timezone = Some(timezone.into());
+        self
+    }
+
+    /// Sets the sender ID or phone number.
+    pub fn from(mut self, from: impl Into<String>) -> Self {
+        self.from = Some(from.into());
+        self
+    }
+
+    /// Sets the message type (marketing or transactional).
+    pub fn message_type(mut self, message_type: MessageType) -> Self {
+        self.message_type = Some(message_type);
+        self
+    }
+
+    /// Replaces the metadata map.
+    pub fn metadata(
+        mut self,
+        metadata: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Adds one metadata entry.
+    pub fn metadata_entry(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<serde_json::Value>,
+    ) -> Self {
+        self.metadata
+            .get_or_insert_with(std::collections::HashMap::new)
+            .insert(key.into(), value.into());
+        self
+    }
 }
 
 /// Options for listing scheduled messages.
@@ -1320,7 +1408,7 @@ pub struct CreateShortLinkRequest {
 pub struct CreateShortLinkResponse {
     /// Short code (the segment after the domain, e.g. "Ab3xY7").
     pub code: String,
-    /// Full branded short URL to share (e.g. "https://sendly.live/l/Ab3xY7").
+    /// Full branded short URL to share (e.g. `https://sendly.live/l/Ab3xY7`).
     #[serde(alias = "shortUrl")]
     pub short_url: String,
     /// The destination the short link redirects to.
@@ -1469,7 +1557,11 @@ impl Default for WebhookMode {
 }
 
 /// A webhook configuration.
+///
+/// This type is `#[non_exhaustive]`: it is read from the API, and fields the
+/// API adds later are not breaking changes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Webhook {
     /// Unique webhook identifier.
     pub id: String,
@@ -1478,6 +1570,9 @@ pub struct Webhook {
     /// List of subscribed event types.
     #[serde(default)]
     pub events: Vec<String>,
+    /// The webhook's description, when it has one.
+    #[serde(default)]
+    pub description: Option<String>,
     /// Event mode filter (all, test, live).
     #[serde(default)]
     pub mode: WebhookMode,
@@ -1490,9 +1585,20 @@ pub struct Webhook {
     /// Circuit breaker state.
     #[serde(default, alias = "circuitState")]
     pub circuit_state: CircuitState,
+    /// When the last delivery failed. `None` when no delivery has failed
+    /// since the circuit was reset.
+    #[serde(default, alias = "lastFailureAt")]
+    pub last_failure_at: Option<String>,
+    /// When the circuit opened, while it has an opening time.
+    #[serde(default, alias = "circuitOpenedAt")]
+    pub circuit_opened_at: Option<String>,
     /// API version for webhook payloads.
     #[serde(default, alias = "apiVersion")]
     pub api_version: Option<String>,
+    /// Your own JSON value, as stored: an object unless you sent another
+    /// JSON value. The API sends `{}` when none was set.
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
     /// Total number of delivery attempts.
     #[serde(default, alias = "totalDeliveries")]
     pub total_deliveries: i32,
@@ -1550,36 +1656,177 @@ impl WebhookCreatedResponse {
     }
 }
 
-/// Request to create a webhook.
-#[derive(Debug, Clone, Serialize)]
+/// Request to create a webhook, for
+/// [`WebhooksResource::create_with_options`](crate::WebhooksResource::create_with_options).
+///
+/// Construct with [`CreateWebhookRequest::new`] and the builder methods.
+/// This type is `#[non_exhaustive]`, so external crates must use the
+/// constructor rather than a struct literal.
+#[derive(Debug, Clone, Default, Serialize)]
+#[non_exhaustive]
 pub struct CreateWebhookRequest {
     /// URL to receive webhook events.
     pub url: String,
     /// List of event types to subscribe to.
     pub events: Vec<String>,
-    /// Event mode filter (all, test, live). Live requires verification.
+    /// A description of the webhook.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Event mode filter (all, test, live). Defaults to all. Live requires
+    /// a verified business.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<WebhookMode>,
-    /// API version for webhook payloads.
+    /// Your own JSON object, stored with the webhook.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Not read by the API when creating a webhook.
+    #[deprecated(note = "The API does not read it when creating a webhook.")]
     #[serde(skip_serializing_if = "Option::is_none", rename = "apiVersion")]
     pub api_version: Option<String>,
 }
 
-/// Request to update a webhook.
+impl CreateWebhookRequest {
+    /// Creates a request for a webhook at `url` subscribed to `events`.
+    pub fn new<E>(url: impl Into<String>, events: impl IntoIterator<Item = E>) -> Self
+    where
+        E: Into<String>,
+    {
+        Self {
+            url: url.into(),
+            events: events.into_iter().map(Into::into).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// Sets the description.
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// Sets the event mode filter.
+    pub fn mode(mut self, mode: WebhookMode) -> Self {
+        self.mode = Some(mode);
+        self
+    }
+
+    /// Replaces the metadata map.
+    pub fn metadata(
+        mut self,
+        metadata: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Adds one metadata entry.
+    pub fn metadata_entry(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<serde_json::Value>,
+    ) -> Self {
+        self.metadata
+            .get_or_insert_with(std::collections::HashMap::new)
+            .insert(key.into(), value.into());
+        self
+    }
+}
+
+/// Request to update a webhook, for
+/// [`WebhooksResource::update`](crate::WebhooksResource::update). Only the
+/// fields you set are sent.
+///
+/// Construct with [`UpdateWebhookRequest::new`] and the builder methods.
+/// [`clear_description`](Self::clear_description) and
+/// [`clear_metadata`](Self::clear_metadata) send `null` to clear that field.
+/// This type is `#[non_exhaustive]`, so external crates must use the
+/// constructor rather than a struct literal.
 #[derive(Debug, Clone, Serialize, Default)]
+#[non_exhaustive]
 pub struct UpdateWebhookRequest {
     /// New URL to receive webhook events.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// New list of event types to subscribe to.
+    /// New list of event types to subscribe to. It replaces the current
+    /// list; an empty list subscribes to none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub events: Option<Vec<String>>,
+    /// `None` leaves the description alone; `Some(Some(_))` sets it;
+    /// `Some(None)` is sent as `null` and clears it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<Option<String>>,
     /// Whether the webhook is active.
     #[serde(skip_serializing_if = "Option::is_none", rename = "is_active")]
     pub is_active: Option<bool>,
-    /// Event mode filter (all, test, live).
+    /// Event mode filter (all, test, live). Live requires a verified
+    /// business.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<WebhookMode>,
+    /// `None` leaves the metadata alone; `Some(Some(_))` replaces it;
+    /// `Some(None)` is sent as `null` and clears it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Option<std::collections::HashMap<String, serde_json::Value>>>,
+}
+
+impl UpdateWebhookRequest {
+    /// Creates an empty update. Set at least one field before sending it.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets a new URL. A new URL also resets the circuit breaker.
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    /// Replaces the subscribed events.
+    pub fn events<E>(mut self, events: impl IntoIterator<Item = E>) -> Self
+    where
+        E: Into<String>,
+    {
+        self.events = Some(events.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Sets the description.
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(Some(description.into()));
+        self
+    }
+
+    /// Clears the description.
+    pub fn clear_description(mut self) -> Self {
+        self.description = Some(None);
+        self
+    }
+
+    /// Turns deliveries on or off.
+    pub fn is_active(mut self, is_active: bool) -> Self {
+        self.is_active = Some(is_active);
+        self
+    }
+
+    /// Sets the event mode filter.
+    pub fn mode(mut self, mode: WebhookMode) -> Self {
+        self.mode = Some(mode);
+        self
+    }
+
+    /// Replaces the metadata.
+    pub fn metadata(
+        mut self,
+        metadata: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.metadata = Some(Some(metadata));
+        self
+    }
+
+    /// Clears the metadata.
+    pub fn clear_metadata(mut self) -> Self {
+        self.metadata = Some(None);
+        self
+    }
 }
 
 /// A webhook delivery attempt.
@@ -2111,7 +2358,7 @@ pub struct RotatedApiKey {
     pub warning: String,
 }
 
-/// Response from rotating an API key (see [`AccountResource::rotate_api_key`]).
+/// Response from rotating an API key (see [`AccountResource::rotate_api_key`](crate::AccountResource::rotate_api_key)).
 #[derive(Debug, Clone, Deserialize)]
 pub struct RotateApiKeyResponse {
     /// The newly issued key, including its one-time raw secret and a warning.
@@ -3929,7 +4176,12 @@ pub struct ConversationWithMessages {
 }
 
 /// Options for listing conversations.
+///
+/// Construct with [`ListConversationsOptions::new`] and the builder methods.
+/// This type is `#[non_exhaustive]`, so external crates must use the
+/// constructor rather than a struct literal.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct ListConversationsOptions {
     /// Maximum number of conversations to return.
     pub limit: Option<i32>,
@@ -3937,25 +4189,37 @@ pub struct ListConversationsOptions {
     pub offset: Option<i32>,
     /// Filter by conversation status.
     pub status: Option<ConversationStatus>,
+    /// Only conversations with this label id.
+    pub label: Option<String>,
 }
 
 impl ListConversationsOptions {
+    /// Creates options that list every conversation.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the page size (up to 100).
     pub fn limit(mut self, limit: i32) -> Self {
         self.limit = Some(limit);
         self
     }
 
+    /// Sets the number of conversations to skip.
     pub fn offset(mut self, offset: i32) -> Self {
         self.offset = Some(offset);
         self
     }
 
+    /// Filters by status.
     pub fn status(mut self, status: ConversationStatus) -> Self {
         self.status = Some(status);
+        self
+    }
+
+    /// Lists only conversations with this label, by the label's id.
+    pub fn label(mut self, label_id: impl Into<String>) -> Self {
+        self.label = Some(label_id.into());
         self
     }
 
@@ -3969,6 +4233,9 @@ impl ListConversationsOptions {
         }
         if let Some(ref status) = self.status {
             params.push(("status".to_string(), status.to_string()));
+        }
+        if let Some(ref label) = self.label {
+            params.push(("label".to_string(), label.clone()));
         }
         params
     }
@@ -4548,9 +4815,17 @@ pub struct SuggestedReply {
 }
 
 /// Response from `conversations.suggest_replies()`.
+///
+/// `suggestions` is empty when no reply could be suggested, and also when
+/// the workspace's enterprise account has AI suggestions turned off: then
+/// `disabled` is `true` and `reason` says why. This type is
+/// `#[non_exhaustive]`: it is read from the API, and fields the API adds
+/// later are not breaking changes.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct SuggestRepliesResponse {
     /// The suggested replies.
+    #[serde(default)]
     pub suggestions: Vec<SuggestedReply>,
     /// The message ID the suggestions were generated against.
     #[serde(default, alias = "basedOnMessageId")]
@@ -4558,6 +4833,14 @@ pub struct SuggestRepliesResponse {
     /// The model that produced the suggestions.
     #[serde(default)]
     pub model: Option<String>,
+    /// `true` when the enterprise turned AI suggestions off for the
+    /// workspace.
+    #[serde(default)]
+    pub disabled: bool,
+    /// Why suggestions are off, such as `enterprise_policy`. Set only when
+    /// `disabled` is `true`.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Variable values for one dynamic-URL button on an approved WhatsApp

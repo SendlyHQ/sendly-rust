@@ -1000,14 +1000,11 @@ async fn test_monthly_quota_is_not_retryable() {
 
     let error = client
         .messages()
-        .schedule(sendly::ScheduleMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Reminder".to_string(),
-            scheduled_at: "2026-12-01T10:00:00Z".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(sendly::ScheduleMessageRequest::new(
+            "+15551234567",
+            "Reminder",
+            "2026-12-01T10:00:00Z",
+        ))
         .await
         .unwrap_err();
 

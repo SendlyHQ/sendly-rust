@@ -399,14 +399,7 @@ async fn test_caller_key_on_schedule() {
     let result = client
         .messages()
         .schedule_with_options(
-            ScheduleMessageRequest {
-                to: "+15551234567".to_string(),
-                text: "Reminder!".to_string(),
-                scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-                from: None,
-                message_type: None,
-                metadata: None,
-            },
+            ScheduleMessageRequest::new("+15551234567", "Reminder!", "2025-01-20T10:00:00Z"),
             IdempotentRequestOptions::new().idempotency_key("reminder-visit-31"),
         )
         .await;

@@ -4,9 +4,12 @@ use common::{
     create_test_client, mock_list_scheduled_success, mock_schedule_success, setup_mock_server,
 };
 use common::{mock_cancel_scheduled_success, mock_get_scheduled_success};
-use sendly::{Error, ListScheduledMessagesOptions, ScheduleMessageRequest, ScheduledMessageStatus};
+use sendly::{
+    Error, ListScheduledMessagesOptions, MessageType, ScheduleMessageRequest,
+    ScheduledMessageStatus,
+};
 use serde_json::json;
-use wiremock::matchers::{method, path, path_regex, query_param};
+use wiremock::matchers::{body_json, method, path, path_regex, query_param};
 use wiremock::{Mock, ResponseTemplate};
 
 // ==================== schedule() Tests ====================
@@ -20,14 +23,11 @@ async fn test_schedule_success() {
 
     let result = client
         .messages()
-        .schedule(ScheduleMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Scheduled message".to_string(),
-            scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(ScheduleMessageRequest::new(
+            "+15551234567",
+            "Scheduled message",
+            "2025-01-20T10:00:00Z",
+        ))
         .await;
 
     assert!(result.is_ok());
@@ -40,20 +40,102 @@ async fn test_schedule_success() {
 }
 
 #[tokio::test]
+async fn test_schedule_sends_the_timezone_label_and_reads_it_back() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/messages/schedule"))
+        .and(body_json(json!({
+            "to": "+15551234567",
+            "text": "Reminder",
+            "scheduledAt": "2026-12-01T10:00:00-05:00",
+            "timezone": "America/New_York",
+            "from": "+18005550199",
+            "messageType": "transactional",
+            "metadata": { "visit": 31 }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "schd_1",
+            "to": "+15551234567",
+            "text": "Reminder",
+            "scheduledAt": "2026-12-01T15:00:00.000Z",
+            "timezone": "America/New_York",
+            "status": "scheduled",
+            "creditsReserved": 2,
+            "segments": 1,
+            "senderType": "number_pool",
+            "createdAt": "2026-11-13T10:00:00.000Z"
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let scheduled = client
+        .messages()
+        .schedule(
+            ScheduleMessageRequest::new("+15551234567", "Reminder", "2026-12-01T10:00:00-05:00")
+                .timezone("America/New_York")
+                .from("+18005550199")
+                .message_type(MessageType::Transactional)
+                .metadata_entry("visit", 31),
+        )
+        .await
+        .expect("schedule should decode");
+
+    assert_eq!(scheduled.timezone.as_deref(), Some("America/New_York"));
+    assert_eq!(scheduled.scheduled_at, "2026-12-01T15:00:00.000Z");
+}
+
+#[tokio::test]
+async fn test_schedule_without_timezone_leaves_it_out() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/messages/schedule"))
+        .and(body_json(json!({
+            "to": "+15551234567",
+            "text": "Reminder",
+            "scheduledAt": "2026-12-01T15:00:00Z"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "schd_1",
+            "to": "+15551234567",
+            "text": "Reminder",
+            "scheduledAt": "2026-12-01T15:00:00.000Z",
+            "timezone": "UTC",
+            "status": "scheduled",
+            "creditsReserved": 2,
+            "createdAt": "2026-11-13T10:00:00.000Z"
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let scheduled = client
+        .messages()
+        .schedule(ScheduleMessageRequest::new(
+            "+15551234567",
+            "Reminder",
+            "2026-12-01T15:00:00Z",
+        ))
+        .await
+        .expect("schedule should decode");
+
+    assert_eq!(scheduled.timezone.as_deref(), Some("UTC"));
+}
+
+#[tokio::test]
 async fn test_schedule_invalid_phone() {
     let mock_server = setup_mock_server().await;
     let client = create_test_client(&mock_server.uri());
 
     let result = client
         .messages()
-        .schedule(ScheduleMessageRequest {
-            to: "invalid-phone".to_string(),
-            text: "Test".to_string(),
-            scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(ScheduleMessageRequest::new(
+            "invalid-phone",
+            "Test",
+            "2025-01-20T10:00:00Z",
+        ))
         .await;
 
     assert!(result.is_err());
@@ -72,14 +154,11 @@ async fn test_schedule_empty_text() {
 
     let result = client
         .messages()
-        .schedule(ScheduleMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "".to_string(),
-            scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(ScheduleMessageRequest::new(
+            "+15551234567",
+            "",
+            "2025-01-20T10:00:00Z",
+        ))
         .await;
 
     assert!(result.is_err());
@@ -100,14 +179,11 @@ async fn test_schedule_text_too_long() {
 
     let result = client
         .messages()
-        .schedule(ScheduleMessageRequest {
-            to: "+15551234567".to_string(),
-            text: long_text,
-            scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(ScheduleMessageRequest::new(
+            "+15551234567",
+            long_text,
+            "2025-01-20T10:00:00Z",
+        ))
         .await;
 
     assert!(result.is_err());
@@ -126,14 +202,7 @@ async fn test_schedule_empty_scheduled_at() {
 
     let result = client
         .messages()
-        .schedule(ScheduleMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            scheduled_at: "".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(ScheduleMessageRequest::new("+15551234567", "Test", ""))
         .await;
 
     assert!(result.is_err());
@@ -161,14 +230,11 @@ async fn test_schedule_authentication_error() {
 
     let result = client
         .messages()
-        .schedule(ScheduleMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(ScheduleMessageRequest::new(
+            "+15551234567",
+            "Test",
+            "2025-01-20T10:00:00Z",
+        ))
         .await;
 
     assert!(result.is_err());
@@ -191,14 +257,11 @@ async fn test_schedule_insufficient_credits() {
 
     let result = client
         .messages()
-        .schedule(ScheduleMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(ScheduleMessageRequest::new(
+            "+15551234567",
+            "Test",
+            "2025-01-20T10:00:00Z",
+        ))
         .await;
 
     assert!(result.is_err());
@@ -226,14 +289,11 @@ async fn test_schedule_rate_limit() {
 
     let result = client
         .messages()
-        .schedule(ScheduleMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(ScheduleMessageRequest::new(
+            "+15551234567",
+            "Test",
+            "2025-01-20T10:00:00Z",
+        ))
         .await;
 
     assert!(result.is_err());
@@ -261,14 +321,11 @@ async fn test_schedule_server_error() {
 
     let result = client
         .messages()
-        .schedule(ScheduleMessageRequest {
-            to: "+15551234567".to_string(),
-            text: "Test".to_string(),
-            scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-            from: None,
-            message_type: None,
-            metadata: None,
-        })
+        .schedule(ScheduleMessageRequest::new(
+            "+15551234567",
+            "Test",
+            "2025-01-20T10:00:00Z",
+        ))
         .await;
 
     assert!(result.is_err());

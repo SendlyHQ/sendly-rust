@@ -1,9 +1,9 @@
 mod common;
 
 use common::{create_test_client, setup_mock_server};
-use sendly::ReplyToConversationRequest;
+use sendly::{ConversationStatus, ListConversationsOptions, ReplyToConversationRequest};
 use serde_json::json;
-use wiremock::matchers::{body_json, method, path};
+use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, ResponseTemplate};
 
 fn send_response(text: &str) -> serde_json::Value {
@@ -154,4 +154,123 @@ async fn test_reply_sends_a_media_only_reply() {
         )
         .await
         .expect("a media-only reply should reach the API");
+}
+
+#[tokio::test]
+async fn test_list_sends_the_label_filter() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/conversations"))
+        .and(query_param("limit", "20"))
+        .and(query_param("status", "active"))
+        .and(query_param("label", "lbl_1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{
+                "id": "conv_1",
+                "phoneNumber": "+15555550100",
+                "status": "active",
+                "unreadCount": 0,
+                "messageCount": 3,
+                "metadata": {},
+                "tags": []
+            }],
+            "pagination": { "total": 1, "limit": 20, "offset": 0, "hasMore": false }
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let page = client
+        .conversations()
+        .list(Some(
+            ListConversationsOptions::new()
+                .limit(20)
+                .status(ConversationStatus::Active)
+                .label("lbl_1"),
+        ))
+        .await
+        .expect("list should decode");
+
+    assert_eq!(page.data.len(), 1);
+    assert_eq!(page.data[0].id, "conv_1");
+}
+
+#[tokio::test]
+async fn test_list_without_a_label_sends_no_label() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/conversations"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [],
+            "pagination": { "total": 0, "limit": 50, "offset": 0, "hasMore": false }
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    client
+        .conversations()
+        .list(Some(ListConversationsOptions::new().limit(50)))
+        .await
+        .expect("list should decode");
+
+    let requests = mock_server.received_requests().await.unwrap();
+    assert_eq!(requests[0].url.query(), Some("limit=50"));
+}
+
+#[tokio::test]
+async fn test_suggest_replies_reads_the_suggestions() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/conversations/conv_1/suggest-replies"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "suggestions": [
+                { "text": "Thanks, see you then!", "tone": "friendly" },
+                { "text": "Confirmed.", "tone": "concise" }
+            ],
+            "basedOnMessageId": "msg_in_1",
+            "model": "sendly-suggest-1"
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let response = client
+        .conversations()
+        .suggest_replies("conv_1")
+        .await
+        .expect("suggest_replies should decode");
+
+    assert_eq!(response.suggestions.len(), 2);
+    assert_eq!(response.suggestions[1].tone, "concise");
+    assert_eq!(response.based_on_message_id.as_deref(), Some("msg_in_1"));
+    assert!(!response.disabled);
+    assert_eq!(response.reason, None);
+}
+
+#[tokio::test]
+async fn test_suggest_replies_reads_that_the_enterprise_turned_them_off() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/conversations/conv_1/suggest-replies"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "suggestions": [],
+            "disabled": true,
+            "reason": "enterprise_policy"
+        })))
+        .mount(&mock_server)
+        .await;
+    let client = create_test_client(&mock_server.uri());
+
+    let response = client
+        .conversations()
+        .suggest_replies("conv_1")
+        .await
+        .expect("suggest_replies should decode");
+
+    assert!(response.suggestions.is_empty());
+    assert!(response.disabled);
+    assert_eq!(response.reason.as_deref(), Some("enterprise_policy"));
+    assert_eq!(response.model, None);
 }

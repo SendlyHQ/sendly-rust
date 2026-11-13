@@ -462,3 +462,67 @@ async fn test_workspaces_list_never_sends_a_zero_limit() {
         .collect();
     assert_eq!(queries, vec![Some("limit=1".to_string()), None]);
 }
+
+fn multipart_body_of(request: &wiremock::Request) -> String {
+    String::from_utf8_lossy(&request.body).to_string()
+}
+
+#[tokio::test]
+async fn test_upload_verification_document_reads_the_type_from_the_extension() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/enterprise/verification-document/upload"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "url": "https://cdn.example.com/doc.png",
+            "id": "upload_0123456789abcdef0123456789abcdef"
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    client
+        .enterprise()
+        .upload_verification_document(b"png".to_vec(), "license.png", None, None)
+        .await
+        .expect("upload should succeed");
+
+    let requests = mock_server.received_requests().await.unwrap();
+    let body = multipart_body_of(&requests[0]);
+    assert!(body.contains("filename=\"license.png\""));
+    assert!(body.contains("Content-Type: image/png"));
+}
+
+#[tokio::test]
+async fn test_upload_verification_document_with_content_type_sends_the_given_type() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/enterprise/verification-document/upload"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "url": "https://cdn.example.com/registration",
+            "id": "upload_0123456789abcdef0123456789abcdef"
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let upload = client
+        .enterprise()
+        .upload_verification_document_with_content_type(
+            b"%PDF-1.7".to_vec(),
+            "registration",
+            "application/pdf",
+            Some("ws_123"),
+            Some("ver_456"),
+        )
+        .await
+        .expect("upload should succeed");
+    assert_eq!(upload.id, "upload_0123456789abcdef0123456789abcdef");
+
+    let requests = mock_server.received_requests().await.unwrap();
+    let body = multipart_body_of(&requests[0]);
+    assert!(body.contains("filename=\"registration\""));
+    assert!(body.contains("Content-Type: application/pdf"));
+    assert!(!body.contains("application/octet-stream"));
+    assert!(body.contains("name=\"workspaceId\"\r\n\r\nws_123"));
+    assert!(body.contains("name=\"verificationId\"\r\n\r\nver_456"));
+}

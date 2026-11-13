@@ -467,6 +467,80 @@ async fn test_get_success() {
 }
 
 #[tokio::test]
+async fn test_get_reads_message_format_batch_and_media() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/messages/msg_mms"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_mms",
+            "to": "+15555550100",
+            "from": "+15555550199",
+            "text": "Your receipt",
+            "status": "delivered",
+            "direction": "outbound",
+            "error": null,
+            "errorCode": null,
+            "retryCount": 0,
+            "segments": 1,
+            "creditsUsed": 4,
+            "isSandbox": false,
+            "createdAt": "2026-11-01T10:00:00.000Z",
+            "deliveredAt": "2026-11-01T10:00:02.000Z",
+            "message_format": "mms",
+            "messageFormat": "mms",
+            "batch_id": "batch_1",
+            "batchId": "batch_1",
+            "media_urls": ["https://cdn.example.com/r.png"],
+            "mediaUrls": ["https://cdn.example.com/r.png"]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let message = client
+        .messages()
+        .get("msg_mms")
+        .await
+        .expect("get should succeed");
+
+    assert_eq!(message.message_format.as_deref(), Some("mms"));
+    assert_eq!(message.batch_id.as_deref(), Some("batch_1"));
+    assert_eq!(
+        message.media_urls,
+        Some(vec!["https://cdn.example.com/r.png".to_string()])
+    );
+}
+
+#[tokio::test]
+async fn test_get_without_format_batch_or_media() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("GET"))
+        .and(path("/messages/msg_old"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_old",
+            "to": "+15555550100",
+            "text": "Hi",
+            "status": "sent",
+            "batchId": null,
+            "mediaUrls": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let message = client
+        .messages()
+        .get("msg_old")
+        .await
+        .expect("get should succeed");
+
+    assert!(message.message_format.is_none());
+    assert!(message.batch_id.is_none());
+    assert!(message.media_urls.is_none());
+}
+
+#[tokio::test]
 async fn test_get_empty_id() {
     let mock_server = setup_mock_server().await;
     let client = create_test_client(&mock_server.uri());

@@ -913,3 +913,45 @@ async fn test_templates_with_a_new_status_or_category_still_decode() {
     );
     assert_eq!(response.templates[1].name, "login_code");
 }
+
+#[tokio::test]
+async fn test_templates_update_clears_footer_header_and_buttons_with_empty_values() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("PATCH"))
+        .and(path("/whatsapp/templates/wat_abc123"))
+        .and(body_json(json!({
+            "footer": "",
+            "header": "",
+            "buttons": []
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "wat_abc123",
+            "name": "order_shipped",
+            "language": "en_US",
+            "category": "UTILITY",
+            "status": "PENDING",
+            "qualityRating": null,
+            "rejectionReason": null,
+            "createdAt": "2026-07-28T10:00:00Z",
+            "updatedAt": "2026-11-13T10:00:00Z"
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let template = client
+        .whatsapp()
+        .templates()
+        .update(
+            "wat_abc123",
+            UpdateWhatsAppTemplateRequest::new()
+                .footer("")
+                .header("")
+                .buttons(Vec::new()),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(template.status, WhatsAppTemplateStatus::Pending);
+}

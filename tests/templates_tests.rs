@@ -1,7 +1,10 @@
 mod common;
 
 use common::{create_test_client, setup_mock_server, TEST_API_KEY};
-use sendly::{CreateTemplateRequest, ListTemplatesOptions, TemplateType, UpdateTemplateRequest};
+use sendly::{
+    CreateTemplateRequest, Error, ListTemplatesOptions, PreviewTemplateRequest, TemplateType,
+    UpdateTemplateRequest,
+};
 use serde_json::json;
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, ResponseTemplate};
@@ -299,4 +302,103 @@ fn test_templates_update_body_and_text_are_one_value() {
     let body_last = UpdateTemplateRequest::new().text("A").body("B");
     assert_eq!(body_last.text.as_deref(), Some("B"));
     assert_eq!(body_last.body.as_deref(), Some("B"));
+}
+
+#[tokio::test]
+async fn test_templates_preview_posts_variables_and_reads_the_rendering() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/templates/tpl_preset_otp/preview"))
+        .and(header(
+            "Authorization",
+            format!("Bearer {}", TEST_API_KEY).as_str(),
+        ))
+        .and(body_json(json!({ "variables": { "code": "123456" } })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "template_id": "tpl_preset_otp",
+            "original_text": "Your code is {{code}}",
+            "rendered_text": "Your code is 123456",
+            "character_count": 19,
+            "segment_count": 1
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let preview = client
+        .templates()
+        .preview(
+            "tpl_preset_otp",
+            PreviewTemplateRequest::new().variable("code", "123456"),
+        )
+        .await
+        .expect("preview should succeed");
+
+    assert_eq!(preview.template_id, "tpl_preset_otp");
+    assert_eq!(preview.original_text, "Your code is {{code}}");
+    assert_eq!(preview.rendered_text, "Your code is 123456");
+    assert_eq!(preview.character_count, 19);
+    assert_eq!(preview.segment_count, 1);
+}
+
+#[tokio::test]
+async fn test_templates_preview_without_variables_sends_an_empty_body() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/templates/tpl%2Fweird/preview"))
+        .and(body_json(json!({})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "template_id": "tpl/weird",
+            "original_text": "Hi {{name}}",
+            "rendered_text": "Hi there",
+            "character_count": 8,
+            "segment_count": 1
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let preview = client
+        .templates()
+        .preview("tpl/weird", PreviewTemplateRequest::new())
+        .await
+        .expect("preview should succeed");
+
+    assert_eq!(preview.rendered_text, "Hi there");
+}
+
+#[tokio::test]
+async fn test_templates_preview_unknown_template_is_not_found() {
+    let mock_server = setup_mock_server().await;
+    Mock::given(method("POST"))
+        .and(path("/templates/tpl_missing/preview"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "error": "not_found",
+            "message": "Template not found"
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_test_client(&mock_server.uri());
+    let error = client
+        .templates()
+        .preview("tpl_missing", PreviewTemplateRequest::new())
+        .await
+        .expect_err("preview should fail");
+
+    assert!(matches!(error, Error::NotFound { .. }), "{error:?}");
+}
+
+#[test]
+fn test_preview_template_request_variables_merge() {
+    let request = PreviewTemplateRequest::new()
+        .variable("code", "1")
+        .variables([("app", "Acme"), ("code", "2")]);
+    assert_eq!(request.variables.get("code").map(String::as_str), Some("2"));
+    assert_eq!(
+        request.variables.get("app").map(String::as_str),
+        Some("Acme")
+    );
 }

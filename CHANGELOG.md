@@ -1,5 +1,36 @@
 # sendly (Rust)
 
+## 9.0.0
+
+The crate ships this with fleet release 4.7.0. It takes a major so request types can gain fields without breaking your code again; everything else is additive.
+
+### Major Changes
+
+- **These request types are now `#[non_exhaustive]`, and code that built one with a struct literal (or `..Default::default()`) stops compiling.** Build them with the constructor and setters instead:
+  - `CreateWebhookRequest`: `CreateWebhookRequest::new(url, events)` with `.description(..)`, `.mode(..)`, `.metadata(..)` and `.metadata_entry(key, value)`.
+  - `UpdateWebhookRequest`: `UpdateWebhookRequest::new()` with `.url(..)`, `.events(..)`, `.description(..)`, `.clear_description()`, `.is_active(..)`, `.mode(..)`, `.metadata(..)` and `.clear_metadata()`. `description` and `metadata` are now `Option<Option<_>>`: `Some(None)` sends `null` and clears the field.
+  - `ScheduleMessageRequest`: `ScheduleMessageRequest::new(to, text, scheduled_at)` with `.timezone(..)`, `.from(..)`, `.message_type(..)`, `.metadata(..)` and `.metadata_entry(key, value)`.
+  - `ListConversationsOptions`: `ListConversationsOptions::new()` with `.limit(..)`, `.offset(..)`, `.status(..)` and `.label(..)`. Code that already used the builder is unchanged.
+  - `RecoveryPreviewOptions` (new in this release): `RecoveryPreviewOptions::new()` with `.since(..)`, `.until(..)` and `.event_types(..)`.
+
+  **The edit:** `ScheduleMessageRequest { to, text, scheduled_at, from: None, message_type: None, metadata: None }` becomes `ScheduleMessageRequest::new(to, text, scheduled_at)`, and `UpdateWebhookRequest { url: Some(url), ..Default::default() }` becomes `UpdateWebhookRequest::new().url(url)`. Reading the public fields still works.
+- **These response types are now `#[non_exhaustive]`:** `Webhook`, `ScheduledMessage` and `SuggestRepliesResponse`. They are read from the API; code that built one with a struct literal must deserialize it instead. Fields the API adds to them later are no longer breaking changes.
+- **`CreateWebhookRequest::api_version` is deprecated.** The API does not read it when creating a webhook.
+
+### Minor Changes
+
+- **Webhook description and metadata.** `CreateWebhookRequest` and `UpdateWebhookRequest` send `description` and `metadata` (your own JSON object), and `Webhook` reads `description`, `metadata` (`Option<serde_json::Value>`, as stored), `last_failure_at` and `circuit_opened_at`.
+- **Schedule time zone label.** `ScheduleMessageRequest::timezone("America/New_York")` sends `timezone`, which the API stores with the message and returns as sent in `ScheduledMessage::timezone` (`UTC` when left out). It is a label only: it does not change how `scheduled_at` is read, so give `scheduled_at` its offset or `Z`.
+- **Filter conversations by label.** `ListConversationsOptions::new().label("lbl_xxx")` sends `label` to `GET /conversations`.
+- **Suggestions turned off.** `SuggestRepliesResponse` gains `disabled` (`bool`) and `reason` (`Option<String>`, such as `enterprise_policy`): when the workspace's enterprise account turned AI suggestions off, `suggestions` is empty, `disabled` is `true` and `reason` says why.
+
+- **Preview a template.** `templates().preview(id, PreviewTemplateRequest::new().variable("code", "123456"))` posts to `/templates/:id/preview` and returns `TemplatePreview` (`template_id`, `original_text`, `rendered_text`, `character_count`, `segment_count`). It renders one of your templates, or any preset, and sends nothing; a variable you leave out takes its fallback. `PreviewTemplateRequest` also takes `variables(...)` to set several at once. An id that is neither yours nor a preset answers 404 (`Error::NotFound`). Both new types are `#[non_exhaustive]`.
+- **`Message` gains `message_format`, `batch_id` and `media_urls`.** `message_format` is the channel and format the message went in (`sms`, `mms`, `whatsapp` or `rcs`), `batch_id` the batch that sent it and `media_urls` its media. All three are `Option`, and are read from `messages().get()`, `list()` and a conversation's messages. `Message` is `#[non_exhaustive]`, so this is not a breaking change.
+- **Preview a webhook recovery.** `webhooks().recovery_preview(id, RecoveryPreviewOptions::new().since(..).until(..).event_types(..))` reads `GET /webhooks/:id/recovery-preview` and returns `WebhookRecoveryPreview` (`circuit_state`, `circuit_opened_at`, `failure_count`, `audit_failures`, `missing_from_messages`, `histogram`, `samples`, `window_suggestion`, `since`, `until`): what `redeliver` and `backfill` would send for the window, without sending anything. `RecoveryPreviewOptions::new()` counts the last 24 hours and every event type; `event_types` goes as one comma-separated value, and the window is at most 7 days. The response types are `#[non_exhaustive]`, and `circuit_state` is a `String` so a state the API adds later still decodes.
+- **Short codes.** `short_codes().list()` reads `GET /short_codes` and returns `ShortCodeList` (`short_codes` of `ShortCode`: `id`, `short_code`, `country_code`, `status`, `review_status`, `use_case`, `created_at`, `billing`). `short_codes().application()` has `get()` (`ShortCodeApplicationView`: the application, `prefill`, `editable`, `lock_message`, documents, `quote`, `billing`, `verification`, `carriers`), `update(ShortCodeApplicationInput)` (`PUT /short_codes/application`), `check(ShortCodeApplicationInput)` (the preflight, returning `ShortCodePreflight` with `ok` and `issues`) and `submit(SubmitShortCodeApplicationRequest::new().accept_terms(true))`, which charges the $999 setup fee. `update_with_options` and `submit_with_options` take an `IdempotentRequestOptions`. Every new type is `#[non_exhaustive]`; statuses are `String`, so a value the API adds later still decodes.
+- **Your own idempotency key on WhatsApp writes.** `whatsapp().templates().create_with_options(request, IdempotentRequestOptions)` and `whatsapp().signup().create_with_idempotency(request, IdempotentRequestOptions)` send the key you give. An add by code (`business_account_id` set) is still sent once and never retried, now with your key when you pass one, so calling again with the same key after a timeout returns the first answer instead of charging for a second signup. `create_with_options` is unchanged.
+- **Upload a verification document with an explicit content type.** `enterprise().upload_verification_document_with_content_type(bytes, filename, content_type, workspace_id, verification_id)` sends the type you give instead of reading it from the filename's extension, for a file named without one. The API accepts `image/png`, `image/jpeg`, `image/gif`, `image/webp` and `application/pdf`.
+
 ## 8.0.0
 
 The crate ships this with fleet release 4.6.0. It takes a major for one change, below; everything else is additive.

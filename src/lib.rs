@@ -73,6 +73,7 @@ mod models;
 mod numbers;
 mod rcs;
 mod rules;
+mod short_codes;
 mod templates;
 mod tendlc;
 mod verify;
@@ -102,9 +103,14 @@ pub use models::*;
 pub use numbers::*;
 pub use rcs::*;
 pub use rules::RulesResource;
+pub use short_codes::*;
 pub use templates::*;
 pub use tendlc::*;
 pub use verify::*;
 pub use voice::*;
-pub use webhook_resource::{BackfillOptions, RedeliverOptions, WebhooksResource};
+pub use webhook_resource::{
+    BackfillOptions, RecoveryPreviewOptions, RedeliverOptions, WebhookRecoveryAuditFailures,
+    WebhookRecoveryHistogramBucket, WebhookRecoveryMissing, WebhookRecoveryPreview,
+    WebhookRecoverySample, WebhookRecoveryWindow, WebhooksResource,
+};
 pub use whatsapp::*;

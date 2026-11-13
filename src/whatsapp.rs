@@ -62,6 +62,7 @@ use reqwest::multipart;
 use crate::client::{path_id, Sendly};
 use crate::error::{Error, Result};
 use crate::media::mime_from_extension;
+use crate::models::IdempotentRequestOptions;
 
 /// Lifecycle status of a WhatsApp signup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -649,6 +650,9 @@ impl CreateWhatsAppTemplateRequest {
 
 /// Request body for [`WhatsAppTemplatesResource::update`]. Supply only the
 /// fields to change; omitted fields keep their current value.
+///
+/// To remove a part, send it empty: `footer("")` clears the footer,
+/// `header("")` the header and `buttons(Vec::new())` the buttons.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct UpdateWhatsAppTemplateRequest {
     /// Replacement body text.
@@ -881,16 +885,59 @@ impl<'a> WhatsAppSignupResource<'a> {
         &self,
         request: CreateWhatsAppSignupRequest,
     ) -> Result<WhatsAppSignupSession> {
+        self.create_with_idempotency(request, IdempotentRequestOptions::new())
+            .await
+    }
+
+    /// [`create_with_options`](Self::create_with_options) with your own
+    /// idempotency key.
+    ///
+    /// Repeating the call with the same key within 24 hours returns the
+    /// first answer instead of starting, and charging, another signup, so
+    /// after a timeout or a network error on an add-by-code signup (which
+    /// the client never retries) you can call again with the same key.
+    /// Without a key, the Facebook connection still gets an automatic key
+    /// per call and an add-by-code signup is sent without one.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use sendly::{CreateWhatsAppSignupRequest, IdempotentRequestOptions, Sendly};
+    ///
+    /// # async fn run() -> Result<(), sendly::Error> {
+    /// let client = Sendly::new("sk_live_v1_xxx");
+    /// let signup = client
+    ///     .whatsapp()
+    ///     .signup()
+    ///     .create_with_idempotency(
+    ///         CreateWhatsAppSignupRequest::new("+14155550142")
+    ///             .business_account_id("104996582519384"),
+    ///         IdempotentRequestOptions::new().idempotency_key("add-14155550142"),
+    ///     )
+    ///     .await?;
+    /// println!("{} {:?}", signup.id, signup.status);
+    /// # Ok(()) }
+    /// ```
+    pub async fn create_with_idempotency(
+        &self,
+        request: CreateWhatsAppSignupRequest,
+        options: IdempotentRequestOptions,
+    ) -> Result<WhatsAppSignupSession> {
         if matches!(request.business_account_id.as_deref(), Some(id) if id.trim().is_empty()) {
             return Err(Error::validation(
                 "businessAccountId must be a non-empty string",
             ));
         }
         let by_code = matches!(request.business_account_id.as_deref(), Some(id) if !id.is_empty());
+        let key = options.idempotency_key.as_deref();
         let response = if by_code {
-            self.client.post_once("/whatsapp/signup", &request).await?
+            self.client
+                .post_once_with_idempotency("/whatsapp/signup", &request, key)
+                .await?
         } else {
-            self.client.post("/whatsapp/signup", &request).await?
+            self.client
+                .post_with_idempotency("/whatsapp/signup", &request, key, true)
+                .await?
         };
         Ok(response.json().await?)
     }
@@ -1247,7 +1294,27 @@ impl<'a> WhatsAppTemplatesResource<'a> {
     /// on an authentication template) or `template_header_variable_unsupported`.
     /// A marketing template without an opt-out button only gets a warning.
     pub async fn create(&self, request: CreateWhatsAppTemplateRequest) -> Result<WhatsAppTemplate> {
-        let response = self.client.post("/whatsapp/templates", &request).await?;
+        self.create_with_options(request, IdempotentRequestOptions::new())
+            .await
+    }
+
+    /// [`create`](Self::create) with per-call options (e.g. your own
+    /// idempotency key, so a repeat of the same create within 24 hours
+    /// returns the first answer instead of submitting the template again).
+    pub async fn create_with_options(
+        &self,
+        request: CreateWhatsAppTemplateRequest,
+        options: IdempotentRequestOptions,
+    ) -> Result<WhatsAppTemplate> {
+        let response = self
+            .client
+            .post_with_idempotency(
+                "/whatsapp/templates",
+                &request,
+                options.idempotency_key.as_deref(),
+                true,
+            )
+            .await?;
         Ok(response.json().await?)
     }
 

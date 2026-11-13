@@ -669,6 +669,50 @@ impl<'a> EnterpriseResource<'a> {
             "webp" => "image/webp",
             _ => "application/octet-stream",
         };
+        self.upload_verification_document_with_content_type(
+            file_bytes,
+            filename,
+            mime,
+            workspace_id,
+            verification_id,
+        )
+        .await
+    }
+
+    /// [`upload_verification_document`](Self::upload_verification_document)
+    /// with the file's content type given rather than read from the
+    /// filename's extension, for a file whose name has no matching
+    /// extension. The API accepts only `image/png`, `image/jpeg`,
+    /// `image/gif`, `image/webp` and `application/pdf`, and refuses any
+    /// other type.
+    ///
+    /// ```rust,no_run
+    /// # use sendly::Sendly;
+    /// # async fn run(client: Sendly, bytes: Vec<u8>) -> sendly::Result<()> {
+    /// let upload = client
+    ///     .enterprise()
+    ///     .upload_verification_document_with_content_type(
+    ///         bytes,
+    ///         "registration",
+    ///         "application/pdf",
+    ///         None,
+    ///         Some("ver_xxx"),
+    ///     )
+    ///     .await?;
+    /// println!("{}", upload.url);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn upload_verification_document_with_content_type(
+        &self,
+        file_bytes: Vec<u8>,
+        filename: impl Into<String>,
+        content_type: &str,
+        workspace_id: Option<&str>,
+        verification_id: Option<&str>,
+    ) -> Result<VerificationDocumentUploadResponse> {
+        let filename = filename.into();
+        let mime = content_type;
 
         let build_form = || {
             let file_part = multipart::Part::bytes(file_bytes.clone())

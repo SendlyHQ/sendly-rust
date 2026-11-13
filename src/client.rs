@@ -17,6 +17,7 @@ use crate::messages::Messages;
 use crate::numbers::NumbersResource;
 use crate::rcs::RcsResource;
 use crate::rules::RulesResource;
+use crate::short_codes::ShortCodesResource;
 use crate::templates::TemplatesResource;
 use crate::tendlc::TenDlcResource;
 use crate::verify::VerifyResource;
@@ -28,7 +29,7 @@ use crate::whatsapp::WhatsAppResource;
 pub const DEFAULT_BASE_URL: &str = "https://sendly.live/api/v1";
 
 /// SDK version.
-pub const VERSION: &str = "8.0.0";
+pub const VERSION: &str = "9.0.0";
 
 /// Configuration for the Sendly client.
 #[derive(Debug, Clone)]
@@ -238,6 +239,11 @@ impl Sendly {
         WhatsAppResource::new(self)
     }
 
+    /// Returns the Short Codes resource (US short code applications).
+    pub fn short_codes(&self) -> ShortCodesResource<'_> {
+        ShortCodesResource::new(self)
+    }
+
     /// Returns the RCS resource.
     pub fn rcs(&self) -> RcsResource {
         RcsResource::new(self)
@@ -441,6 +447,18 @@ impl Sendly {
         path: &str,
         body: &T,
     ) -> Result<Response> {
+        self.post_once_with_idempotency(path, body, None).await
+    }
+
+    /// [`post_once`](Self::post_once) that also sends a caller-supplied
+    /// idempotency key. Without one, no key is sent.
+    pub(crate) async fn post_once_with_idempotency<T: serde::Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        idempotency_key: Option<&str>,
+    ) -> Result<Response> {
+        let idempotency_key = normalize_idempotency_key(idempotency_key)?;
         let url = format!("{}{}", self.config.base_url, path);
         let req = self
             .client
@@ -449,6 +467,11 @@ impl Sendly {
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Accept", "application/json")
             .header("User-Agent", format!("sendly-rs/{VERSION}"));
+        let req = if let Some(ref key) = idempotency_key {
+            req.header("Idempotency-Key", key)
+        } else {
+            req
+        };
         let req = if let Some(ref org_id) = self.organization_id {
             req.header("X-Organization-Id", org_id)
         } else {

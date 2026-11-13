@@ -22,7 +22,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sendly = "8.0.0"
+sendly = "9.0.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -117,7 +117,7 @@ a timed-out attempt had already reached the API.
 
 ## Idempotency
 
-Every send POST carries an automatically generated `Idempotency-Key`, created once per logical request and reused on every retry the client makes (after a timeout, a connection failure or the busy key-check 429), so a retry of a request that already reached the API returns the original result instead of sending again. The API records an answer under the key only when it is final: a 2xx or a 4xx other than 429 is kept for 24 hours and replayed to any request that repeats the key, while a 5xx or a 429 is never recorded, so repeating the key after one of those runs the request. Pass your own key through the `*_with_options` send methods when the guarantee needs to outlive the process, such as a job queue that re-runs after a crash, or when you retry a 5xx yourself. Keys are 1-255 printable ASCII characters; `send_batch` attaches no automatic key because the API already deduplicates identical batches by their contents. RCS registration writes (brand and agent create/update, test devices, submit, request launch) carry a key the same way, including their PATCH and PUT calls, with `*_with_options` variants for your own key. So do the voice and call writes: placing a call, hanging one up, changing a number's voice settings, registering an emergency address, and creating, updating or deleting an agent.
+Every send POST carries an automatically generated `Idempotency-Key`, created once per logical request and reused on every retry the client makes (after a timeout, a connection failure or the busy key-check 429), so a retry of a request that already reached the API returns the original result instead of sending again. The API records an answer under the key only when it is final: a 2xx or a 4xx other than 429 is kept for 24 hours and replayed to any request that repeats the key, while a 5xx or a 429 is never recorded, so repeating the key after one of those runs the request. Pass your own key through the `*_with_options` send methods when the guarantee needs to outlive the process, such as a job queue that re-runs after a crash, or when you retry a 5xx yourself. Keys are 1-255 printable ASCII characters; `send_batch` attaches no automatic key because the API already deduplicates identical batches by their contents. RCS registration writes (brand and agent create/update, test devices, submit, request launch) carry a key the same way, including their PATCH and PUT calls, with `*_with_options` variants for your own key. So do the voice and call writes: placing a call, hanging one up, changing a number's voice settings, registering an emergency address, and creating, updating or deleting an agent. WhatsApp template creation (`templates().create_with_options`), WhatsApp signup (`signup().create_with_idempotency`) and the short code application save and submit (`update_with_options`, `submit_with_options`) take your own key too.
 
 ```rust
 use sendly::{IdempotentRequestOptions, Sendly, SendMessageRequest};
@@ -276,18 +276,20 @@ use sendly::{Sendly, ScheduleMessageRequest};
 
 // Schedule a message for future delivery. scheduled_at must be 5 minutes to
 // 5 days ahead, so build it from the current time (here with the chrono crate).
-let scheduled = client.messages().schedule(ScheduleMessageRequest {
-    to: "+14155550123".to_string(),
-    text: "Your appointment is tomorrow!".to_string(),
-    scheduled_at: (chrono::Utc::now() + chrono::Duration::days(1))
-        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-    from: None,
-    message_type: None,
-    metadata: None,
-}).await?;
+// timezone is a label stored with the message and returned as sent; it does
+// not change when the message goes, so give scheduled_at its offset or Z.
+let scheduled = client.messages().schedule(
+    ScheduleMessageRequest::new(
+        "+14155550123",
+        "Your appointment is tomorrow!",
+        (chrono::Utc::now() + chrono::Duration::days(1))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    )
+    .timezone("America/New_York"),
+).await?;
 
 println!("Scheduled: {}", scheduled.id);
-println!("Will send at: {}", scheduled.scheduled_at);
+println!("Will send at: {} ({:?})", scheduled.scheduled_at, scheduled.timezone);
 
 // List scheduled messages
 let result = client.messages().list_scheduled(None).await?;
@@ -392,12 +394,23 @@ while let Some(result) = stream.next().await {
 ## Webhooks
 
 ```rust
-use sendly::{Sendly, UpdateWebhookRequest};
+use sendly::{CreateWebhookRequest, Sendly, UpdateWebhookRequest, WebhookMode};
 
 // Create a webhook endpoint
 let webhook = client.webhooks().create(
     "https://acme.example/webhooks/sendly",
     vec!["message.delivered", "message.failed"],
+).await?;
+
+// ...or with a description, the event mode and your own metadata
+let described = client.webhooks().create_with_options(
+    CreateWebhookRequest::new(
+        "https://acme.example/webhooks/sendly-live",
+        ["message.delivered", "message.failed"],
+    )
+    .description("Delivery receipts")
+    .mode(WebhookMode::Live)
+    .metadata_entry("team", "billing"),
 ).await?;
 
 // `create` answers a WebhookCreatedResponse: the signing secret plus the
@@ -414,16 +427,15 @@ let webhooks = client.webhooks().list().await?;
 // Get a specific webhook
 let wh = client.webhooks().get("whk_xxx").await?;
 
-// Update a webhook
-client.webhooks().update("whk_xxx", UpdateWebhookRequest {
-    url: Some("https://hooks.acme.example/webhook".to_string()),
-    events: Some(vec![
-        "message.delivered".to_string(),
-        "message.failed".to_string(),
-        "message.sent".to_string(),
-    ]),
-    ..Default::default()
-}).await?;
+// Update a webhook. Only the fields you set are sent; clear_description()
+// and clear_metadata() send null to clear them.
+client.webhooks().update(
+    "whk_xxx",
+    UpdateWebhookRequest::new()
+        .url("https://hooks.acme.example/webhook")
+        .events(["message.delivered", "message.failed", "message.sent"])
+        .description("Delivery receipts"),
+).await?;
 
 // Send a webhook.test event. An endpoint that accepts it comes back Ok; one
 // that refuses it or cannot be reached comes back Err(Error::Validation) with
@@ -531,7 +543,7 @@ in constant time, and a timestamp more than **300 seconds** from now is rejected
 ### Delivery log, replays and the circuit breaker
 
 ```rust
-use sendly::{BackfillOptions, ListDeliveriesOptions, RedeliverOptions};
+use sendly::{BackfillOptions, ListDeliveriesOptions, RecoveryPreviewOptions, RedeliverOptions};
 
 // Every delivery attempt for one webhook
 let deliveries = client.webhooks()
@@ -543,6 +555,16 @@ for d in &deliveries.data {
 
 let delivery = client.webhooks().get_delivery("whk_xxx", "del_xxx").await?;
 client.webhooks().retry_delivery("whk_xxx", "del_xxx").await?;
+
+// See what a recovery would send, without sending anything (default: the
+// last 24 hours and every event type; the window is at most 7 days)
+let preview = client.webhooks()
+    .recovery_preview(
+        "whk_xxx",
+        RecoveryPreviewOptions::new().event_types(["message.delivered", "message.failed"]),
+    )
+    .await?;
+println!("{} failed, {} missing", preview.audit_failures.total, preview.missing_from_messages.total);
 
 // Repeated failures trip a circuit breaker; close it again before replaying
 client.webhooks().reset_circuit("whk_xxx").await?;
@@ -567,7 +589,7 @@ client.webhooks().backfill("whk_xxx", BackfillOptions {
 ```
 
 `redeliver` and `backfill` both answer HTTP 409 while the circuit is open, so
-call `reset_circuit` first. The window can span at most 7 days. `statuses` takes
+call `reset_circuit` first; `recovery_preview` works while it is open. The window can span at most 7 days. `statuses` takes
 `failed`, `cancelled`, `delivered` and `pending`. A backfilled event carries the
 same event id the original dispatch used, so dedupe on `event.id`, not on
 `data.object.id`, which a message's sent and delivered events share.
@@ -856,6 +878,11 @@ use sendly::{
 let threads = client.conversations()
     .list(Some(ListConversationsOptions::new().limit(50).status(ConversationStatus::Active)))
     .await?;
+
+// Only the threads with one label, by the label's id
+let vip = client.conversations()
+    .list(Some(ListConversationsOptions::new().label("lbl_xxx")))
+    .await?;
 for thread in &threads.data {
     println!("{} — {} unread", thread.phone_number, thread.unread_count);
 }
@@ -895,8 +922,13 @@ client.conversations().mark_read("conv_xxx").await?;
 client.conversations().close("conv_xxx").await?;
 client.conversations().reopen("conv_xxx").await?;
 
-// AI suggestions for the next reply
+// AI suggestions for the next reply. The list is empty when none could be
+// suggested, and also when the enterprise turned suggestions off: then
+// `disabled` is true and `reason` says why ("enterprise_policy").
 let suggestions = client.conversations().suggest_replies("conv_xxx").await?;
+if suggestions.disabled {
+    println!("suggestions are off: {:?}", suggestions.reason);
+}
 for s in &suggestions.suggestions {
     println!("[{}] {}", s.tone, s.text);
 }
@@ -986,7 +1018,10 @@ client.drafts().reject("draft_xxx", Some("Wrong tone".to_string())).await?;
 ## Templates
 
 ```rust
-use sendly::{CreateTemplateRequest, ListTemplatesOptions, Sendly, UpdateTemplateRequest};
+use sendly::{
+    CreateTemplateRequest, ListTemplatesOptions, PreviewTemplateRequest, Sendly,
+    UpdateTemplateRequest,
+};
 
 let template = client.templates()
     .create(CreateTemplateRequest::new("welcome", "Hi {{name}}, welcome to {{company}}!"))
@@ -998,11 +1033,20 @@ client.templates().publish(&template.id).await?;
 
 let copy = client.templates().clone_with_name(&template.id, "welcome-v2").await?;
 client.templates().delete(&copy.id).await?;
+
+let preview = client.templates()
+    .preview("tpl_preset_otp", PreviewTemplateRequest::new().variable("code", "123456"))
+    .await?;
+println!("{} ({} segments)", preview.rendered_text, preview.segment_count);
 ```
 
 `templates().list(ListTemplatesOptions::new()...)` lists presets and your own
 templates, `get(id)` fetches one, `clone(id)` copies one under a generated name,
 and `generate(...)` drafts a template from a plain-English description.
+`preview(id, PreviewTemplateRequest::new())` renders one of your templates, or
+any preset, with the values you give and sends nothing: a variable you leave
+out takes its fallback. `TemplatePreview` has `template_id`, `original_text`,
+`rendered_text`, `character_count` and `segment_count`.
 
 On `Template`, prefer `text`, `is_preset`, `variable_specs`, `status` and
 `is_published()`. The `body`, `template_type`, `locale`, `variables`,
@@ -1545,6 +1589,11 @@ client.whatsapp().signup()
   couldn't be reached (start again). The session fails and the fee is refunded
   either way. Calling it again for a number that is already verifying returns
   the same session without charging again.
+- The client never retries an add by code (not after a 5xx, a timeout or a
+  network error). To call again safely after one, use
+  `create_with_idempotency(request, IdempotentRequestOptions::new().idempotency_key("add-15125550142"))`
+  with the same key: a repeat within 24 hours returns the first answer
+  instead of starting, and charging, another signup.
 - `verify` answers 422 `whatsapp_verification_code_invalid` for a wrong code
   (`err.remaining_attempts()` says how many tries are left), 409
   `whatsapp_verification_failed` on the fifth wrong code (the signup fails and
@@ -1577,6 +1626,10 @@ for t in &templates.templates {
 // Meta locks a deleted template's name for about 30 days.
 client.whatsapp().templates()
     .update("tpl_xxx", UpdateWhatsAppTemplateRequest::new().body("Hi {{1}}, your order {{2}} shipped."))
+    .await?;
+// An empty value removes that part: here the footer and every button.
+client.whatsapp().templates()
+    .update("tpl_xxx", UpdateWhatsAppTemplateRequest::new().footer("").buttons(Vec::new()))
     .await?;
 client.whatsapp().templates().delete("tpl_xxx").await?;
 ```
@@ -1845,24 +1898,43 @@ write has a `*_with_options` twin that takes your own idempotency key.
 
 ## Short codes
 
-This SDK has **no short-code helpers** — short-code programs are applied for and
-managed in the dashboard and over REST. The only short-code surface here is the
-webhook events, which `Webhooks::parse_event` decodes like any other lifecycle
-event: `short_code.action_required`, `short_code.rejected`, `short_code.filed`
-and `short_code.live`. Their payload is on `event.object` (`event.data` is
-`None`).
+A short code is a 5 or 6 digit US sender. Getting one is an application: you fill it in, Sendly reviews it, the carrier forms are signed, Sendly files it, and each carrier certifies the code. `short_codes()` lists every application and code, and `short_codes().application()` reads, saves, checks and submits the workspace's application. Reads need `short_codes:read` and writes `short_codes:write`; while short codes are not enabled for the account every call answers 404 `short_codes_not_enabled` (`Error::NotFound`).
 
-The REST endpoints take the same `Authorization: Bearer <key>` header this
-client uses:
+```rust
+use sendly::{IdempotentRequestOptions, Sendly, ShortCodeApplicationInput, SubmitShortCodeApplicationRequest};
 
-| Method | Path | Scope |
-|--------|------|-------|
-| `GET` | `/api/v1/short_codes` | `short_codes:read` |
-| `POST` | `/api/v1/short_codes/requests` | `short_codes:write` |
-| `GET` | `/api/v1/short_codes/application` | `short_codes:read` |
-| `PUT` | `/api/v1/short_codes/application` | `short_codes:write` |
-| `POST` | `/api/v1/short_codes/application/preflight` | `short_codes:read` |
-| `POST` | `/api/v1/short_codes/application/submit` | `short_codes:write` |
+let client = Sendly::new("sk_live_v1_xxx");
+let short_codes = client.short_codes();
+
+let list = short_codes.list().await?;
+let sendable: Vec<_> = list.short_codes.iter().filter(|c| c.status == "active").collect();
+
+let view = short_codes.application().get().await?;
+if !view.editable {
+    println!("{}", view.lock_message.unwrap_or_default());
+}
+
+short_codes.application().update(
+    ShortCodeApplicationInput::new()
+        .use_case("Delivery alerts for Acme orders")
+        .message_frequency("4 messages per month"),
+).await?;
+
+let preflight = short_codes.application().check(ShortCodeApplicationInput::new()).await?;
+for issue in &preflight.issues {
+    println!("{}: {}", issue.path, issue.message);
+}
+
+let submitted = short_codes.application().submit_with_options(
+    SubmitShortCodeApplicationRequest::new().accept_terms(true),
+    IdempotentRequestOptions::new().idempotency_key("acme-short-code-submit"),
+).await?;
+println!("{}", submitted.application.review_status);
+```
+
+Submitting charges the one-time $999 setup fee to the workspace's card, so it needs `accept_terms(true)`, which also accepts the monthly lease from go-live and the 3-month minimum. The fee is refunded in full if Sendly rejects the application before filing it, and submitting twice charges nothing (`already_submitted`). `update_with_options` and `submit_with_options` take your own idempotency key. Statuses are plain strings, so a value the API adds later still decodes.
+
+The webhook events `short_code.action_required`, `short_code.rejected`, `short_code.filed` and `short_code.live` are decoded by `Webhooks::parse_event` like any other lifecycle event; their payload is on `event.object` (`event.data` is `None`).
 
 ## Voice Calls
 
@@ -2344,6 +2416,11 @@ message.delivered_at  // Option<String>
 message.error         // Option<String>
 message.error_code    // Option<String>
 message.error_message // Option<String>
+message.fallback      // Option<WhatsAppSmsFallback> (WhatsApp message sent with fallback_to_sms)
+message.fallback_of   // Option<String> (SMS fallback: the WhatsApp message it replaced)
+message.message_format // Option<String>: sms, mms, whatsapp or rcs
+message.batch_id      // Option<String> (the batch that sent it)
+message.media_urls    // Option<Vec<String>> (the media sent with it)
 
 // Helper methods
 message.is_delivered() // bool

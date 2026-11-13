@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::client::{path_id, Sendly};
@@ -361,6 +363,68 @@ pub struct DeleteTemplateResponse {
     pub message: Option<String>,
 }
 
+/// Values to render a template with in
+/// [`TemplatesResource::preview`].
+///
+/// [`PreviewTemplateRequest::new`] renders with each variable's fallback
+/// only. Each [`variable`](Self::variable) fills one `{{key}}`. This type is
+/// `#[non_exhaustive]`, so external crates must use the constructor rather
+/// than a struct literal.
+#[derive(Debug, Clone, Default, Serialize)]
+#[non_exhaustive]
+pub struct PreviewTemplateRequest {
+    /// Values by variable key: `code` → `123456` fills `{{code}}`.
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub variables: HashMap<String, String>,
+}
+
+impl PreviewTemplateRequest {
+    /// Creates an empty request that renders with the fallbacks only.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the value for one variable.
+    pub fn variable(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.variables.insert(key.into(), value.into());
+        self
+    }
+
+    /// Sets the values for several variables, keeping any already set.
+    pub fn variables<K, V>(mut self, variables: impl IntoIterator<Item = (K, V)>) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.variables
+            .extend(variables.into_iter().map(|(k, v)| (k.into(), v.into())));
+        self
+    }
+}
+
+/// A template rendered with the values you gave, from
+/// [`TemplatesResource::preview`]. Nothing is sent or saved.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct TemplatePreview {
+    /// The template's id.
+    #[serde(alias = "templateId")]
+    pub template_id: String,
+    /// The template's text, unrendered.
+    #[serde(alias = "originalText")]
+    pub original_text: String,
+    /// The text with each `{{key}}` replaced by the value you sent, else the
+    /// variable's fallback. A variable with neither stays as `{{key}}`.
+    #[serde(alias = "renderedText")]
+    pub rendered_text: String,
+    /// The rendered text's length, in UTF-16 code units.
+    #[serde(default, alias = "characterCount")]
+    pub character_count: u32,
+    /// How many SMS segments the rendered text needs.
+    #[serde(default, alias = "segmentCount")]
+    pub segment_count: u32,
+}
+
 pub struct TemplatesResource<'a> {
     client: &'a Sendly,
 }
@@ -451,6 +515,38 @@ impl<'a> TemplatesResource<'a> {
         let response = self
             .client
             .post(&format!("/templates/{}/clone", path_id(id)?), &request)
+            .await?;
+        Ok(response.json().await?)
+    }
+
+    /// Renders one of the workspace's templates, or any preset, with the
+    /// values you give. Nothing is sent or saved.
+    ///
+    /// A template the key's workspace doesn't have, and no preset, answers
+    /// 404 ([`Error::NotFound`]).
+    ///
+    /// ```rust,no_run
+    /// # use sendly::{PreviewTemplateRequest, Sendly};
+    /// # async fn run(client: Sendly) -> sendly::Result<()> {
+    /// let preview = client
+    ///     .templates()
+    ///     .preview(
+    ///         "tpl_preset_otp",
+    ///         PreviewTemplateRequest::new().variable("code", "123456"),
+    ///     )
+    ///     .await?;
+    /// println!("{} ({} segments)", preview.rendered_text, preview.segment_count);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn preview(
+        &self,
+        id: &str,
+        request: PreviewTemplateRequest,
+    ) -> Result<TemplatePreview> {
+        let response = self
+            .client
+            .post(&format!("/templates/{}/preview", path_id(id)?), &request)
             .await?;
         Ok(response.json().await?)
     }

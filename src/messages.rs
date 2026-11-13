@@ -735,14 +735,17 @@ impl<'a> Messages<'a> {
     /// # async fn example() -> sendly::Result<()> {
     /// let client = Sendly::new("sk_live_v1_xxx");
     ///
-    /// let scheduled = client.messages().schedule(ScheduleMessageRequest {
-    ///     to: "+15551234567".to_string(),
-    ///     text: "Reminder: Your appointment is tomorrow!".to_string(),
-    ///     scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-    ///     from: None,
-    ///     message_type: None,
-    ///     metadata: None,
-    /// }).await?;
+    /// let scheduled = client
+    ///     .messages()
+    ///     .schedule(
+    ///         ScheduleMessageRequest::new(
+    ///             "+15551234567",
+    ///             "Reminder: Your appointment is tomorrow!",
+    ///             "2025-01-20T10:00:00-05:00",
+    ///         )
+    ///         .timezone("America/New_York"),
+    ///     )
+    ///     .await?;
     ///
     /// println!("Scheduled: {}", scheduled.id);
     /// # Ok(())
@@ -770,14 +773,11 @@ impl<'a> Messages<'a> {
     ///
     /// let scheduled = client.messages()
     ///     .schedule_with_options(
-    ///         ScheduleMessageRequest {
-    ///             to: "+15551234567".to_string(),
-    ///             text: "Reminder: Your appointment is tomorrow!".to_string(),
-    ///             scheduled_at: "2025-01-20T10:00:00Z".to_string(),
-    ///             from: None,
-    ///             message_type: None,
-    ///             metadata: None,
-    ///         },
+    ///         ScheduleMessageRequest::new(
+    ///             "+15551234567",
+    ///             "Reminder: Your appointment is tomorrow!",
+    ///             "2025-01-20T10:00:00Z",
+    ///         ),
     ///         IdempotentRequestOptions::new().idempotency_key("reminder-visit-31"),
     ///     )
     ///     .await?;
