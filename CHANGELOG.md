@@ -1,5 +1,19 @@
 # sendly (Rust)
 
+## 8.0.0
+
+The crate ships this with fleet release 4.6.0. It takes a major for one change, below; everything else is additive.
+
+### Major Changes
+
+- **`ListCallsOptions` gained `agent_kind` and is now `#[non_exhaustive]`.** Code that built it with a struct literal stops compiling; use the builder instead, as in `ListCallsOptions::new().limit(20).agent_kind(VoiceAgentKind::Sip)`. Filters the API adds later are no longer breaking changes.
+
+### Minor Changes
+
+- **Bring your own voice agent.** `CreateVoiceAgentRequest` and `UpdateVoiceAgentRequest` take `kind(VoiceAgentKind::CustomLlm | Sip | Websocket)` and `connection(VoiceAgentConnectionInput)`, built with `VoiceAgentConnectionInput::custom_llm(base_url, model)`, `::sip(uri)` or `::websocket(url)` and setters such as `api_key`, `password`, `auth_token`, `header` and `custom_parameter` (`clear_*` removes a saved secret). `VoiceAgent` gains `kind`, `connection` (`VoiceAgentConnection`, which never carries a secret, only `has_api_key`, `has_password` and `has_auth_token`), `has_signing_secret`, and `signing_secret`, which is `Some` once: on create, when an update makes the agent one of your own, and after `UpdateVoiceAgentRequest::rotate_signing_secret()`. A saved secret is only sent to the host it was saved with; moving the address to another host needs it again (400). Your own agents need the workspace's bring-your-own-agent feature (403 `byo_agents_not_enabled`).
+- **Test an agent's connection.** `voice().agents().test(id, TestVoiceAgentRequest::new())` reaches your own agent the way a call would, without placing one, and returns `VoiceAgentTest` (`ok`, `outcome`, `message`, `status`, `latency_ms`, `signed`, `steps`). `TestVoiceAgentRequest` takes `kind`, `connection` and `instructions` to test settings before saving them. It sends no idempotency key; a workspace can run 10 tests a minute.
+- **Call transfer.** `calls().transfer(id, TransferCallRequest::new().to("+15125550142"))` hands a live inbound call to a person; `Call` gains `transfer` (`CallTransfer` with `to`, `status` and `failure_reason`), `agent_kind` and `agent_fallback`. `ListCallsOptions::agent_kind` filters calls by the kind of agent that handled them.
+
 ## 7.0.0
 
 ### Major Changes

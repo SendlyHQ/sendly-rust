@@ -707,6 +707,7 @@ impl TransferCallRequest {
 
 /// Filters and paging for [`CallsResource::list`].
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct ListCallsOptions {
     /// Page size (default 50, max 100).
     pub limit: Option<u32>,
